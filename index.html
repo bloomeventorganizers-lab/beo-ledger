@@ -486,8 +486,19 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
   const [openCityId, setOpenCityId] = useState(cities[0]?.id || null);
   const [newCityName, setNewCityName] = useState("");
   const [newHotelName, setNewHotelName] = useState("");
+  const [search, setSearch] = useState("");
 
   useEffect(() => { if ((!openCityId || !cities.find(c => c.id === openCityId)) && cities[0]) setOpenCityId(cities[0].id); }, [cities]);
+
+  const q = search.trim().toLowerCase();
+  const isSearching = q.length > 0;
+  const searchResults = isSearching
+    ? cities.flatMap(c =>
+        c.name.toLowerCase().includes(q)
+          ? c.hotels.map(h => ({ ...h, __cityId: c.id, __cityName: c.name }))
+          : c.hotels.filter(h => h.name.toLowerCase().includes(q)).map(h => ({ ...h, __cityId: c.id, __cityName: c.name }))
+      )
+    : [];
 
   const addCity = () => {
     if (!newCityName.trim()) return;
@@ -513,6 +524,43 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
   const openCity = cities.find(c => c.id === openCityId);
 
   return (
+    <div>
+      <div className="beo-card" style={{ padding: 14, marginBottom: 16 }}>
+        <input
+          className="beo-input"
+          placeholder="Search by hotel name or city (e.g. 'Taj' or 'East Delhi')…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ fontSize: 14 }}
+        />
+      </div>
+
+      {isSearching ? (
+        <div className="beo-card" style={{ padding: 20 }}>
+          <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 4 }}>
+            {searchResults.length} result{searchResults.length === 1 ? "" : "s"} for "{search}"
+          </div>
+          <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 16 }}>Clear the search box to go back to browsing by city.</div>
+          {searchResults.length === 0 ? (
+            <div style={{ color: "#a39a89" }}>No hotels or cities match that search.</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+              {searchResults.map(h => (
+                <div key={h.id} className="beo-card" style={{ padding: 14, cursor: "pointer", position: "relative" }} onClick={() => onOpenHotel(h.__cityId, h.id)}>
+                  {h.photos && h.photos[0] && (
+                    <img src={h.photos[0]} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
+                  )}
+                  <div style={{ fontSize: 11, color: "#B8934A", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>📍 {h.__cityName}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14.5 }}>{h.name}</div>
+                  <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>
+                    {h.salesManager?.name ? `Sales: ${h.salesManager.name}` : "No sales contact yet"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
     <div className="two-col">
       <div className="beo-card" style={{ padding: 14 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 10 }}>Cities</div>
@@ -553,6 +601,8 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
           </React.Fragment>
         )}
       </div>
+    </div>
+      )}
     </div>
   );
 }
