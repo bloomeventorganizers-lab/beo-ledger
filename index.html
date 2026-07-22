@@ -73,6 +73,17 @@ const db = window.__db;
 const DEFAULT_CATEGORIES = ["Entries", "SFX", "Welcome", "Itineraries", "Hotels", "Live Band", "Games", "Stationery"];
 const uid = () => Math.random().toString(36).slice(2, 10);
 const inr = (n) => "₹" + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+const fmtCurrency = (n, symbol) => (symbol || "₹") + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+const CURRENCY_OPTIONS = ["₹", "$", "€", "£", "AED"];
+const HOTEL_STATUSES = ["Not contacted", "Contacted", "Quote received", "Booked", "Dead lead"];
+const statusColor = (status) => ({
+  "Not contacted": { bg: "#F1EADA", fg: "#8a8071" },
+  "Contacted": { bg: "#DCEAF5", fg: "#2A6A9E" },
+  "Quote received": { bg: "#FBE8CC", fg: "#B8712A" },
+  "Booked": { bg: "#DDEFDD", fg: "#2E7D32" },
+  "Dead lead": { bg: "#F5DCDC", fg: "#B33A3A" },
+}[status] || { bg: "#F1EADA", fg: "#8a8071" });
+const waLink = (phone) => "https://wa.me/" + String(phone || "").replace(/[^0-9]/g, "");
 
 function App() {
   const [user, setUser] = useState(undefined);
@@ -180,7 +191,7 @@ function MainApp({ user }) {
       rooms: { qty: 0, rate: 0, nights: 1 },
       banquet: { mode: "flat", pax: 0, rate: 0 },
       extraLines: [],
-      profit: 0, commissionPercent: 0, commissionMode: "final", createdAt: Date.now()
+      profit: 0, commissionPercent: 0, commissionMode: "final", currency: "₹", createdAt: Date.now()
     };
     setCorpQuotes(prev => [q, ...prev]);
     openQuote(q.id);
@@ -229,6 +240,8 @@ function MainApp({ user }) {
           <HotelDetail
             city={cities.find(c => c.id === activeCityId)}
             hotel={activeHotel}
+            quotes={corpQuotes}
+            onOpenQuote={openQuote}
             onBack={() => setTab("hotels")}
             onChange={(updated) => setCities(prev => prev.map(c => c.id === activeCityId ? { ...c, hotels: c.hotels.map(h => h.id === updated.id ? updated : h) } : c))}
           />
@@ -485,47 +498,115 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
 function HotelsView({ cities, setCities, onOpenHotel }) {
   const [openCityId, setOpenCityId] = useState(cities[0]?.id || null);
   const [newCityName, setNewCityName] = useState("");
+  const [newCityRegion, setNewCityRegion] = useState("");
+  const [newCityCountry, setNewCityCountry] = useState("India");
   const [newHotelName, setNewHotelName] = useState("");
   const [search, setSearch] = useState("");
+  const [countryFilter, setCountryFilter] = useState("All");
+  const [regionFilter, setRegionFilter] = useState("All");
+  const [brandFilter, setBrandFilter] = useState("All");
+  const [editingRegionId, setEditingRegionId] = useState(null);
+  const [editRegionDraft, setEditRegionDraft] = useState("");
+  const [editCountryDraft, setEditCountryDraft] = useState("");
 
   useEffect(() => { if ((!openCityId || !cities.find(c => c.id === openCityId)) && cities[0]) setOpenCityId(cities[0].id); }, [cities]);
 
+  const cityCountry = (c) => (c.country && c.country.trim()) ? c.country.trim() : "India";
+  const cityRegion = (c) => (c.region && c.region.trim()) ? c.region.trim() : "Unassigned";
+
+  const allCountries = Array.from(new Set(cities.map(cityCountry)));
+  if (allCountries.length === 0) allCountries.push("India");
+  const countryOptions = ["All", ...allCountries];
+
+  const regionsForCountry = Array.from(new Set(
+    cities.filter(c => countryFilter === "All" || cityCountry(c) === countryFilter).map(cityRegion)
+  ));
+  const regionOptions = ["All", ...regionsForCountry];
+
+  const allBrands = Array.from(new Set(
+    cities.flatMap(c => c.hotels.map(h => (h.brand || "").trim())).filter(Boolean)
+  )).sort();
+  const brandOptions = ["All", ...allBrands];
+
   const q = search.trim().toLowerCase();
-  const isSearching = q.length > 0;
-  const searchResults = isSearching
-    ? cities.flatMap(c =>
-        c.name.toLowerCase().includes(q)
-          ? c.hotels.map(h => ({ ...h, __cityId: c.id, __cityName: c.name }))
-          : c.hotels.filter(h => h.name.toLowerCase().includes(q)).map(h => ({ ...h, __cityId: c.id, __cityName: c.name }))
-      )
-    : [];
+  const filtersActive = q.length > 0 || countryFilter !== "All" || regionFilter !== "All" || brandFilter !== "All";
+
+  const filteredResults = filtersActive ? cities.flatMap(c => {
+    if (countryFilter !== "All" && cityCountry(c) !== countryFilter) return [];
+    if (regionFilter !== "All" && cityRegion(c) !== regionFilter) return [];
+    const cityNameMatches = q.length > 0 && c.name.toLowerCase().includes(q);
+    return c.hotels
+      .filter(h => {
+        if (brandFilter !== "All" && (h.brand || "").trim() !== brandFilter) return false;
+        if (q.length === 0) return true;
+        return cityNameMatches || h.name.toLowerCase().includes(q);
+      })
+      .map(h => ({ ...h, __cityId: c.id, __cityName: c.name }));
+  }) : [];
 
   const addCity = () => {
     if (!newCityName.trim()) return;
-    const c = { id: uid(), name: newCityName.trim(), hotels: [] };
+    const c = { id: uid(), name: newCityName.trim(), region: newCityRegion.trim(), country: newCityCountry.trim() || "India", hotels: [] };
     setCities(prev => [...prev, c]);
-    setNewCityName(""); setOpenCityId(c.id);
+    setNewCityName(""); setNewCityRegion(""); setOpenCityId(c.id);
   };
   const removeCity = (id) => setCities(prev => prev.filter(c => c.id !== id));
 
+  const saveRegionEdit = (cityId) => {
+    setCities(prev => prev.map(c => c.id === cityId ? { ...c, region: editRegionDraft.trim(), country: editCountryDraft.trim() || "India" } : c));
+    setEditingRegionId(null);
+  };
+
   const addHotel = (cityId) => {
-    if (!newHotelName.trim()) return;
+    const name = newHotelName.trim();
+    if (!name) return;
+    const dupe = cities.flatMap(c => c.hotels.map(h => ({ h, cName: c.name }))).find(({ h }) => h.name.trim().toLowerCase() === name.toLowerCase());
+    if (dupe && !window.confirm(`A hotel named "${dupe.h.name}" already exists in ${dupe.cName}. Add "${name}" here anyway?`)) return;
     const h = {
-      id: uid(), name: newHotelName.trim(), description: "",
+      id: uid(), name: name, description: "", brand: "", mapUrl: "",
       photos: [], documents: [],
       salesManager: { name: "", phone: "" },
-      altContact: { name: "", phone: "" }
+      altContact: { name: "", phone: "" },
+      status: "Not contacted", lastContactedDate: "", notes: []
     };
     setCities(prev => prev.map(c => c.id === cityId ? { ...c, hotels: [...c.hotels, h] } : c));
     setNewHotelName("");
   };
   const removeHotel = (cityId, hotelId) => setCities(prev => prev.map(c => c.id === cityId ? { ...c, hotels: c.hotels.filter(h => h.id !== hotelId) } : c));
 
+  const exportCsv = () => {
+    const rows = [["Country", "Region", "City/Area", "Hotel", "Brand", "Status", "Last Contacted", "Sales Manager", "Sales Phone", "Alt Contact", "Alt Phone", "Description"]];
+    cities.forEach(c => {
+      c.hotels.forEach(h => {
+        rows.push([
+          cityCountry(c), cityRegion(c), c.name, h.name, h.brand || "", h.status || "Not contacted", h.lastContactedDate || "",
+          h.salesManager?.name || "", h.salesManager?.phone || "", h.altContact?.name || "", h.altContact?.phone || "",
+          (h.description || "").replace(/\n/g, " ")
+        ]);
+      });
+    });
+    const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "hotel_database.csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const openCity = cities.find(c => c.id === openCityId);
+
+  const groupedByRegion = {};
+  cities.forEach(c => {
+    const r = cityRegion(c);
+    if (!groupedByRegion[r]) groupedByRegion[r] = [];
+    groupedByRegion[r].push(c);
+  });
+  const regionGroupNames = Object.keys(groupedByRegion).sort((a, b) => (a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b)));
 
   return (
     <div>
-      <div className="beo-card" style={{ padding: 14, marginBottom: 16 }}>
+      <div className="beo-card" style={{ padding: 14, marginBottom: 12 }}>
         <input
           className="beo-input"
           placeholder="Search by hotel name or city (e.g. 'Taj' or 'East Delhi')…"
@@ -535,73 +616,120 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
         />
       </div>
 
-      {isSearching ? (
+      <div className="beo-card" style={{ padding: 14, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: "#8a8071", textTransform: "uppercase" }}>Filters:</div>
+        <select className="beo-input" style={{ width: "auto", minWidth: 140 }} value={countryFilter} onChange={e => { setCountryFilter(e.target.value); setRegionFilter("All"); }}>
+          {countryOptions.map(o => <option key={o} value={o}>{o === "All" ? "All Countries" : o}</option>)}
+        </select>
+        <select className="beo-input" style={{ width: "auto", minWidth: 160 }} value={regionFilter} onChange={e => setRegionFilter(e.target.value)}>
+          {regionOptions.map(o => <option key={o} value={o}>{o === "All" ? "All Regions" : o}</option>)}
+        </select>
+        <select className="beo-input" style={{ width: "auto", minWidth: 160 }} value={brandFilter} onChange={e => setBrandFilter(e.target.value)}>
+          {brandOptions.map(o => <option key={o} value={o}>{o === "All" ? "All Brands" : o}</option>)}
+        </select>
+        {filtersActive && (
+          <button className="beo-btn beo-btn-ghost" onClick={() => { setSearch(""); setCountryFilter("All"); setRegionFilter("All"); setBrandFilter("All"); }}>Clear filters</button>
+        )}
+        <button className="beo-btn beo-btn-gold" style={{ marginLeft: "auto" }} onClick={exportCsv}>⬇ Export CSV</button>
+      </div>
+
+      {filtersActive ? (
         <div className="beo-card" style={{ padding: 20 }}>
           <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 4 }}>
-            {searchResults.length} result{searchResults.length === 1 ? "" : "s"} for "{search}"
+            {filteredResults.length} result{filteredResults.length === 1 ? "" : "s"}
           </div>
-          <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 16 }}>Clear the search box to go back to browsing by city.</div>
-          {searchResults.length === 0 ? (
-            <div style={{ color: "#a39a89" }}>No hotels or cities match that search.</div>
+          <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 16 }}>Clear filters to go back to browsing by region/city.</div>
+          {filteredResults.length === 0 ? (
+            <div style={{ color: "#a39a89" }}>No hotels match these filters.</div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
-              {searchResults.map(h => (
+              {filteredResults.map(h => (
                 <div key={h.id} className="beo-card" style={{ padding: 14, cursor: "pointer", position: "relative" }} onClick={() => onOpenHotel(h.__cityId, h.id)}>
                   {h.photos && h.photos[0] && (
                     <img src={h.photos[0]} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
                   )}
                   <div style={{ fontSize: 11, color: "#B8934A", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>📍 {h.__cityName}</div>
                   <div style={{ fontWeight: 700, fontSize: 14.5 }}>{h.name}</div>
+                  {h.brand && <div style={{ fontSize: 11, color: "#6B1E23", fontWeight: 600, marginTop: 2 }}>{h.brand}</div>}
                   <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>
                     {h.salesManager?.name ? `Sales: ${h.salesManager.name}` : "No sales contact yet"}
                   </div>
+                  <span style={{ display: "inline-block", marginTop: 6, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: statusColor(h.status).bg, color: statusColor(h.status).fg }}>{h.status || "Not contacted"}</span>
                 </div>
               ))}
             </div>
           )}
         </div>
       ) : (
-    <div className="two-col">
-      <div className="beo-card" style={{ padding: 14 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 10 }}>Cities</div>
-        {cities.map(c => (
-          <div key={c.id} onClick={() => setOpenCityId(c.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: openCityId === c.id ? "#F1EADA" : "transparent", marginBottom: 2 }}>
-            <span style={{ fontSize: 14 }}>📍 {c.name} <span style={{ fontSize: 11, color: "#a39a89" }}>({c.hotels.length})</span></span>
-            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeCity(c.id); }}>🗑</span>
-          </div>
-        ))}
-        <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-          <input className="beo-input" placeholder="New city (e.g. Delhi West)" value={newCityName} onChange={e => setNewCityName(e.target.value)} onKeyDown={e => e.key === "Enter" && addCity()} style={{ fontSize: 13 }} />
-          <button className="beo-btn beo-btn-gold" onClick={addCity}>＋</button>
-        </div>
-      </div>
-      <div className="beo-card" style={{ padding: 20 }}>
-        {!openCity ? <div style={{ color: "#a39a89" }}>Create a city to start adding hotels.</div> : (
-          <React.Fragment>
-            <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>{openCity.name}</div>
-            {openCity.hotels.length === 0 && <div style={{ color: "#a39a89", fontSize: 14, marginBottom: 14 }}>No hotels yet in this city.</div>}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12, marginBottom: 18 }}>
-              {openCity.hotels.map(h => (
-                <div key={h.id} className="beo-card" style={{ padding: 14, cursor: "pointer", position: "relative" }} onClick={() => onOpenHotel(openCity.id, h.id)}>
-                  {h.photos && h.photos[0] && (
-                    <img src={h.photos[0]} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
-                  )}
-                  <div style={{ fontWeight: 700, fontSize: 14.5 }}>{h.name}</div>
-                  <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>
-                    {h.salesManager?.name ? `Sales: ${h.salesManager.name}` : "No sales contact yet"}
+        <div className="two-col">
+          <div className="beo-card" style={{ padding: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 10 }}>Cities, by region</div>
+            {regionGroupNames.map(region => (
+              <div key={region} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#B8934A", textTransform: "uppercase", margin: "8px 0 4px" }}>📁 {region}</div>
+                {groupedByRegion[region].map(c => (
+                  <div key={c.id}>
+                    <div onClick={() => setOpenCityId(c.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: openCityId === c.id ? "#F1EADA" : "transparent", marginBottom: 2 }}>
+                      <span style={{ fontSize: 14 }}>📍 {c.name} <span style={{ fontSize: 11, color: "#a39a89" }}>({c.hotels.length})</span></span>
+                      <span style={{ display: "flex", gap: 6 }}>
+                        <span style={{ color: "#B8934A", cursor: "pointer", fontSize: 12 }} onClick={(e) => { e.stopPropagation(); setEditingRegionId(c.id); setEditRegionDraft(c.region || ""); setEditCountryDraft(c.country || "India"); }}>✎</span>
+                        <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeCity(c.id); }}>🗑</span>
+                      </span>
+                    </div>
+                    {editingRegionId === c.id && (
+                      <div style={{ padding: "6px 10px 10px", background: "#FAF6EE", borderRadius: 6, marginBottom: 6 }}>
+                        <input className="beo-input" placeholder="Region (e.g. Delhi NCR)" value={editRegionDraft} onChange={e => setEditRegionDraft(e.target.value)} style={{ marginBottom: 6, fontSize: 12.5 }} />
+                        <input className="beo-input" placeholder="Country" value={editCountryDraft} onChange={e => setEditCountryDraft(e.target.value)} style={{ marginBottom: 6, fontSize: 12.5 }} />
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="beo-btn beo-btn-primary" style={{ fontSize: 12, padding: "6px 10px" }} onClick={() => saveRegionEdit(c.id)}>Save</button>
+                          <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12, padding: "6px 10px" }} onClick={() => setEditingRegionId(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <span style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeHotel(openCity.id, h.id); }}>🗑</span>
+                ))}
+              </div>
+            ))}
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
+              <div style={{ fontSize: 11, color: "#a39a89", marginBottom: 6 }}>Add new city/area</div>
+              <input className="beo-input" placeholder="Region (e.g. Delhi NCR, Jaipur)" value={newCityRegion} onChange={e => setNewCityRegion(e.target.value)} style={{ marginBottom: 6, fontSize: 13 }} />
+              <input className="beo-input" placeholder="Country" value={newCityCountry} onChange={e => setNewCityCountry(e.target.value)} style={{ marginBottom: 6, fontSize: 13 }} />
+              <div style={{ display: "flex", gap: 6 }}>
+                <input className="beo-input" placeholder="City/area name (e.g. East Delhi)" value={newCityName} onChange={e => setNewCityName(e.target.value)} onKeyDown={e => e.key === "Enter" && addCity()} style={{ fontSize: 13 }} />
+                <button className="beo-btn beo-btn-gold" onClick={addCity}>＋</button>
+              </div>
+            </div>
+          </div>
+          <div className="beo-card" style={{ padding: 20 }}>
+            {!openCity ? <div style={{ color: "#a39a89" }}>Create a city to start adding hotels.</div> : (
+              <React.Fragment>
+                <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 2 }}>{openCity.name}</div>
+                <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 14 }}>{cityRegion(openCity)} · {cityCountry(openCity)}</div>
+                {openCity.hotels.length === 0 && <div style={{ color: "#a39a89", fontSize: 14, marginBottom: 14 }}>No hotels yet in this city.</div>}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12, marginBottom: 18 }}>
+                  {openCity.hotels.map(h => (
+                    <div key={h.id} className="beo-card" style={{ padding: 14, cursor: "pointer", position: "relative" }} onClick={() => onOpenHotel(openCity.id, h.id)}>
+                      {h.photos && h.photos[0] && (
+                        <img src={h.photos[0]} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
+                      )}
+                      <div style={{ fontWeight: 700, fontSize: 14.5 }}>{h.name}</div>
+                      {h.brand && <div style={{ fontSize: 11, color: "#6B1E23", fontWeight: 600, marginTop: 2 }}>{h.brand}</div>}
+                      <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>
+                        {h.salesManager?.name ? `Sales: ${h.salesManager.name}` : "No sales contact yet"}
+                      </div>
+                      <span style={{ display: "inline-block", marginTop: 6, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: statusColor(h.status).bg, color: statusColor(h.status).fg }}>{h.status || "Not contacted"}</span>
+                      <span style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeHotel(openCity.id, h.id); }}>🗑</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 8, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
-              <input className="beo-input" placeholder="New hotel name" value={newHotelName} onChange={e => setNewHotelName(e.target.value)} onKeyDown={e => e.key === "Enter" && addHotel(openCity.id)} />
-              <button className="beo-btn beo-btn-primary" onClick={() => addHotel(openCity.id)}>＋ Add hotel</button>
-            </div>
-          </React.Fragment>
-        )}
-      </div>
-    </div>
+                <div style={{ display: "flex", gap: 8, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
+                  <input className="beo-input" placeholder="New hotel name" value={newHotelName} onChange={e => setNewHotelName(e.target.value)} onKeyDown={e => e.key === "Enter" && addHotel(openCity.id)} />
+                  <button className="beo-btn beo-btn-primary" onClick={() => addHotel(openCity.id)}>＋ Add hotel</button>
+                </div>
+              </React.Fragment>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -640,7 +768,9 @@ function HotelDetail({ city, hotel, onBack, onChange }) {
       <div className="builder-col">
         <div>
           <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
-            <input className="beo-input beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 12, border: "none", padding: "4px 0" }} value={hotel.name} onChange={e => update({ name: e.target.value })} />
+            <input className="beo-input beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 8, border: "none", padding: "4px 0" }} value={hotel.name} onChange={e => update({ name: e.target.value })} />
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Brand / Group (e.g. Taj, Marriott, Hyatt, Oberoi)</label>
+            <input className="beo-input" placeholder="e.g. Taj" value={hotel.brand || ""} onChange={e => update({ brand: e.target.value })} style={{ marginTop: 4, marginBottom: 12, maxWidth: 260 }} />
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Description (capacity, key points, venues, etc.)</label>
             <textarea className="beo-input" rows={5} value={hotel.description} onChange={e => update({ description: e.target.value })} style={{ marginTop: 6, resize: "vertical", fontFamily: "inherit" }} placeholder="e.g. 442 rooms, 7,500 sqm event space across 15 venues, largest ballroom seats 1200 pax…" />
           </div>
@@ -690,6 +820,31 @@ function HotelDetail({ city, hotel, onBack, onChange }) {
                 <input className="beo-input" placeholder="https://… (PDF link)" value={newDocUrl} onChange={e => setNewDocUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && addDoc()} />
                 <button className="beo-btn beo-btn-primary" onClick={addDoc}>＋</button>
               </div>
+            )}
+          </div>
+
+          <div className="beo-card" style={{ padding: 20, marginTop: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Location</div>
+            <div style={{ borderRadius: 8, overflow: "hidden", border: "1px solid #EDE6D6", marginBottom: 10 }}>
+              <iframe
+                title="Hotel location map"
+                width="100%"
+                height="220"
+                style={{ border: 0, display: "block" }}
+                loading="lazy"
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(hotel.name + " " + (city ? city.name : ""))}&output=embed`}
+              ></iframe>
+            </div>
+            <div style={{ fontSize: 11.5, color: "#a39a89", marginBottom: 6 }}>
+              Map above is auto-generated from the hotel name. If it's not pinpointing the right spot, paste the exact Google Maps link below.
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input className="beo-input" placeholder="Paste exact Google Maps link (optional)" value={hotel.mapUrl || ""} onChange={e => update({ mapUrl: e.target.value })} />
+            </div>
+            {hotel.mapUrl && (
+              <a href={hotel.mapUrl} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 10, fontSize: 13, color: "#6B1E23", fontWeight: 600, textDecoration: "none" }}>
+                📍 Open exact saved location on Google Maps ↗
+              </a>
             )}
           </div>
         </div>
