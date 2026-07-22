@@ -123,8 +123,13 @@ function MainApp({ user }) {
   const [loaded, setLoaded] = useState(false);
   const [categories, setCategories] = useState([]);
   const [budgets, setBudgets] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [corpQuotes, setCorpQuotes] = useState([]);
   const [tab, setTab] = useState("inventory");
   const [activeBudgetId, setActiveBudgetId] = useState(null);
+  const [activeCityId, setActiveCityId] = useState(null);
+  const [activeHotelId, setActiveHotelId] = useState(null);
+  const [activeQuoteId, setActiveQuoteId] = useState(null);
   const [syncStatus, setSyncStatus] = useState("syncing");
   const skipNextSave = useRef(false);
   const docRef = db.collection("beoUsers").doc(user.uid);
@@ -137,6 +142,10 @@ function MainApp({ user }) {
       else setCategories(DEFAULT_CATEGORIES.map(n => ({ id: uid(), name: n, items: [] })));
       if (data && data.budgets) setBudgets(data.budgets);
       else setBudgets([]);
+      if (data && data.cities) setCities(data.cities);
+      else setCities([]);
+      if (data && data.corpQuotes) setCorpQuotes(data.corpQuotes);
+      else setCorpQuotes([]);
       setLoaded(true);
       setSyncStatus("synced");
     }, err => {
@@ -150,10 +159,10 @@ function MainApp({ user }) {
     if (!loaded) return;
     if (skipNextSave.current) { skipNextSave.current = false; return; }
     setSyncStatus("syncing");
-    docRef.set({ categories, budgets }, { merge: true })
+    docRef.set({ categories, budgets, cities, corpQuotes }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [categories, budgets]);
+  }, [categories, budgets, cities, corpQuotes]);
 
   const openBudget = (id) => { setActiveBudgetId(id); setTab("builder"); };
   const createBudget = () => {
@@ -162,7 +171,28 @@ function MainApp({ user }) {
     openBudget(b.id);
   };
 
+  const openHotel = (cityId, hotelId) => { setActiveCityId(cityId); setActiveHotelId(hotelId); setTab("hotelDetail"); };
+  const openQuote = (id) => { setActiveQuoteId(id); setTab("quoteBuilder"); };
+  const createQuote = () => {
+    const q = {
+      id: uid(), name: "New Corporate Quote", clientName: "", date: new Date().toISOString().slice(0, 10),
+      cityId: "", hotelId: "",
+      rooms: { qty: 0, rate: 0, nights: 1 },
+      banquet: { mode: "flat", pax: 0, rate: 0 },
+      extraLines: [],
+      profit: 0, commissionPercent: 0, commissionMode: "final", createdAt: Date.now()
+    };
+    setCorpQuotes(prev => [q, ...prev]);
+    openQuote(q.id);
+  };
+
   if (!loaded) return <div style={{ padding: 40, color: "#6b1e23" }}>Loading your workspace…</div>;
+
+  const activeHotel = (() => {
+    const c = cities.find(c => c.id === activeCityId);
+    if (!c) return null;
+    return c.hotels.find(h => h.id === activeHotelId) || null;
+  })();
 
   return (
     <div style={{ minHeight: "100vh" }}>
@@ -173,9 +203,11 @@ function MainApp({ user }) {
             {syncStatus === "syncing" ? "Syncing…" : syncStatus === "error" ? "Sync error — check connection" : `Synced · ${user.email}`}
           </div>
         </div>
-        <nav style={{ display: "flex", gap: 8 }}>
-          <button className="beo-btn" onClick={() => setTab("inventory")} style={{ padding: "8px 14px", borderRadius: 6, fontSize: 14, background: tab === "inventory" ? "#6B1E23" : "transparent", color: tab === "inventory" ? "#FAF6EE" : "#6B1E23" }}>Inventory</button>
-          <button className="beo-btn" onClick={() => setTab("budgets")} style={{ padding: "8px 14px", borderRadius: 6, fontSize: 14, background: (tab === "budgets" || tab === "builder") ? "#6B1E23" : "transparent", color: (tab === "budgets" || tab === "builder") ? "#FAF6EE" : "#6B1E23" }}>Client Budgets</button>
+        <nav style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>
+          <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>
+          <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
+          <TabBtn active={tab === "quotes" || tab === "quoteBuilder"} onClick={() => setTab("quotes")}>Corporate Quotes</TabBtn>
           <button className="beo-btn beo-btn-ghost" onClick={() => auth.signOut()}>Sign out</button>
         </nav>
       </div>
@@ -190,8 +222,38 @@ function MainApp({ user }) {
             onChange={(updated) => setBudgets(prev => prev.map(b => b.id === updated.id ? updated : b))}
           />
         )}
+        {tab === "hotels" && (
+          <HotelsView cities={cities} setCities={setCities} onOpenHotel={openHotel} />
+        )}
+        {tab === "hotelDetail" && activeHotel && (
+          <HotelDetail
+            city={cities.find(c => c.id === activeCityId)}
+            hotel={activeHotel}
+            onBack={() => setTab("hotels")}
+            onChange={(updated) => setCities(prev => prev.map(c => c.id === activeCityId ? { ...c, hotels: c.hotels.map(h => h.id === updated.id ? updated : h) } : c))}
+          />
+        )}
+        {tab === "quotes" && (
+          <QuotesListView quotes={corpQuotes} setQuotes={setCorpQuotes} onOpen={openQuote} onCreate={createQuote} cities={cities} />
+        )}
+        {tab === "quoteBuilder" && activeQuoteId && (
+          <CorporateQuoteBuilder
+            quote={corpQuotes.find(q => q.id === activeQuoteId)}
+            cities={cities}
+            onBack={() => setTab("quotes")}
+            onChange={(updated) => setCorpQuotes(prev => prev.map(q => q.id === updated.id ? updated : q))}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+function TabBtn({ active, onClick, children }) {
+  return (
+    <button className="beo-btn" onClick={onClick} style={{ padding: "8px 14px", borderRadius: 6, fontSize: 14, background: active ? "#6B1E23" : "transparent", color: active ? "#FAF6EE" : "#6B1E23" }}>
+      {children}
+    </button>
   );
 }
 
@@ -375,7 +437,7 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
               <div key={l.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 90px 24px", gap: 6, alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 13 }}>
                 <div>{l.name} <span style={{ color: "#a39a89", fontSize: 10.5 }}>({l.category})</span></div>
                 <input className="beo-input" type="number" min="1" value={l.qty} onChange={e => updateLine(l.id, { qty: Number(e.target.value) || 1 })} style={{ padding: "5px 6px" }} />
-                <input className="beo-input" type="number" value={l.cost} onChange={e => updateLine(l.id, { cost: Number(e.target.value) || 0 })} style={{ padding: "5px 6px" }} />
+                <input className="beo-input" type="number" value={l.cost} onChange={e => updateLine(l.id, { cost: Number(e.target.value) })} style={{ padding: "5px 6px" }} />
                 <div>{inr(l.cost * l.qty)}</div>
                 <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeLine(l.id)}>×</span>
               </div>
@@ -393,6 +455,408 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Hotel commission (%)</label>
             <input className="beo-input" type="number" value={budget.commissionPercent} onChange={e => update({ commissionPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+          </div>
+          <div style={{ margin: "14px 0" }}>
+            <label style={{ fontSize: 12.5, fontWeight: 600, display: "block", marginBottom: 6 }}>Commission is calculated on</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button className="beo-btn" onClick={() => update({ commissionMode: "final" })} style={{ flex: 1, padding: "8px 6px", fontSize: 12.5, borderRadius: 6, background: mode === "final" ? "#6B1E23" : "#F1EADA", color: mode === "final" ? "#FAF6EE" : "#6B1E23" }}>Final client budget</button>
+              <button className="beo-btn" onClick={() => update({ commissionMode: "base" })} style={{ flex: 1, padding: "8px 6px", fontSize: 12.5, borderRadius: 6, background: mode === "base" ? "#6B1E23" : "#F1EADA", color: mode === "base" ? "#FAF6EE" : "#6B1E23" }}>Your base cost</button>
+            </div>
+          </div>
+          <div style={{ borderTop: "1px dashed #E4DCC8", margin: "16px 0", paddingTop: 14 }}>
+            <Row label="Base cost" value={inr(baseCost)} />
+            <Row label="Your profit" value={inr(profit)} />
+            <Row label={`Hotel commission (${commissionPct}%)`} value={(commissionPct >= 100 && mode === "final") ? "—" : inr(commissionAmount)} />
+          </div>
+          <div style={{ background: "#6B1E23", borderRadius: 8, padding: "14px 16px" }}>
+            <div style={{ fontSize: 12, color: "#E9D9B8" }}>Quote to client</div>
+            <div className="beo-serif" style={{ fontSize: 28, fontWeight: 700, color: "#FAF6EE" }}>
+              {(commissionPct >= 100 && mode === "final") ? "Set commission < 100%" : inr(finalBudget)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================= HOTELS (city-wise database) ============================= */
+
+function HotelsView({ cities, setCities, onOpenHotel }) {
+  const [openCityId, setOpenCityId] = useState(cities[0]?.id || null);
+  const [newCityName, setNewCityName] = useState("");
+  const [newHotelName, setNewHotelName] = useState("");
+
+  useEffect(() => { if ((!openCityId || !cities.find(c => c.id === openCityId)) && cities[0]) setOpenCityId(cities[0].id); }, [cities]);
+
+  const addCity = () => {
+    if (!newCityName.trim()) return;
+    const c = { id: uid(), name: newCityName.trim(), hotels: [] };
+    setCities(prev => [...prev, c]);
+    setNewCityName(""); setOpenCityId(c.id);
+  };
+  const removeCity = (id) => setCities(prev => prev.filter(c => c.id !== id));
+
+  const addHotel = (cityId) => {
+    if (!newHotelName.trim()) return;
+    const h = {
+      id: uid(), name: newHotelName.trim(), description: "",
+      photos: [], documents: [],
+      salesManager: { name: "", phone: "" },
+      altContact: { name: "", phone: "" }
+    };
+    setCities(prev => prev.map(c => c.id === cityId ? { ...c, hotels: [...c.hotels, h] } : c));
+    setNewHotelName("");
+  };
+  const removeHotel = (cityId, hotelId) => setCities(prev => prev.map(c => c.id === cityId ? { ...c, hotels: c.hotels.filter(h => h.id !== hotelId) } : c));
+
+  const openCity = cities.find(c => c.id === openCityId);
+
+  return (
+    <div className="two-col">
+      <div className="beo-card" style={{ padding: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 10 }}>Cities</div>
+        {cities.map(c => (
+          <div key={c.id} onClick={() => setOpenCityId(c.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: openCityId === c.id ? "#F1EADA" : "transparent", marginBottom: 2 }}>
+            <span style={{ fontSize: 14 }}>📍 {c.name} <span style={{ fontSize: 11, color: "#a39a89" }}>({c.hotels.length})</span></span>
+            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeCity(c.id); }}>🗑</span>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+          <input className="beo-input" placeholder="New city (e.g. Delhi West)" value={newCityName} onChange={e => setNewCityName(e.target.value)} onKeyDown={e => e.key === "Enter" && addCity()} style={{ fontSize: 13 }} />
+          <button className="beo-btn beo-btn-gold" onClick={addCity}>＋</button>
+        </div>
+      </div>
+      <div className="beo-card" style={{ padding: 20 }}>
+        {!openCity ? <div style={{ color: "#a39a89" }}>Create a city to start adding hotels.</div> : (
+          <React.Fragment>
+            <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>{openCity.name}</div>
+            {openCity.hotels.length === 0 && <div style={{ color: "#a39a89", fontSize: 14, marginBottom: 14 }}>No hotels yet in this city.</div>}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12, marginBottom: 18 }}>
+              {openCity.hotels.map(h => (
+                <div key={h.id} className="beo-card" style={{ padding: 14, cursor: "pointer", position: "relative" }} onClick={() => onOpenHotel(openCity.id, h.id)}>
+                  {h.photos && h.photos[0] && (
+                    <img src={h.photos[0]} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
+                  )}
+                  <div style={{ fontWeight: 700, fontSize: 14.5 }}>{h.name}</div>
+                  <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>
+                    {h.salesManager?.name ? `Sales: ${h.salesManager.name}` : "No sales contact yet"}
+                  </div>
+                  <span style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeHotel(openCity.id, h.id); }}>🗑</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
+              <input className="beo-input" placeholder="New hotel name" value={newHotelName} onChange={e => setNewHotelName(e.target.value)} onKeyDown={e => e.key === "Enter" && addHotel(openCity.id)} />
+              <button className="beo-btn beo-btn-primary" onClick={() => addHotel(openCity.id)}>＋ Add hotel</button>
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HotelDetail({ city, hotel, onBack, onChange }) {
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const [newPhotoUrl, setNewPhotoUrl] = useState("");
+  const [newDocLabel, setNewDocLabel] = useState("");
+  const [newDocUrl, setNewDocUrl] = useState("");
+
+  if (!hotel) return null;
+  const update = (patch) => onChange({ ...hotel, ...patch });
+  const photos = hotel.photos || [];
+  const documents = hotel.documents || [];
+
+  const addPhoto = () => {
+    if (!newPhotoUrl.trim()) return;
+    update({ photos: [...photos, newPhotoUrl.trim()] });
+    setNewPhotoUrl("");
+  };
+  const removePhoto = (i) => {
+    update({ photos: photos.filter((_, idx) => idx !== i) });
+    setPhotoIdx(0);
+  };
+  const addDoc = () => {
+    if (!newDocUrl.trim() || documents.length >= 4) return;
+    update({ documents: [...documents, { id: uid(), label: newDocLabel.trim() || "Document", url: newDocUrl.trim() }] });
+    setNewDocLabel(""); setNewDocUrl("");
+  };
+  const removeDoc = (id) => update({ documents: documents.filter(d => d.id !== id) });
+
+  return (
+    <div>
+      <button className="beo-btn beo-btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>← Back to {city ? city.name : "Hotels"}</button>
+      <div className="builder-col">
+        <div>
+          <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+            <input className="beo-input beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 12, border: "none", padding: "4px 0" }} value={hotel.name} onChange={e => update({ name: e.target.value })} />
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>Description (capacity, key points, venues, etc.)</label>
+            <textarea className="beo-input" rows={5} value={hotel.description} onChange={e => update({ description: e.target.value })} style={{ marginTop: 6, resize: "vertical", fontFamily: "inherit" }} placeholder="e.g. 442 rooms, 7,500 sqm event space across 15 venues, largest ballroom seats 1200 pax…" />
+          </div>
+
+          <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Photos ({photos.length})</div>
+            {photos.length > 0 ? (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ position: "relative", width: "100%", height: 260, borderRadius: 8, overflow: "hidden", background: "#F1EADA" }}>
+                  <img src={photos[photoIdx]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.opacity = 0.2} />
+                  {photos.length > 1 && (
+                    <React.Fragment>
+                      <button onClick={() => setPhotoIdx((photoIdx - 1 + photos.length) % photos.length)} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", color: "#fff", border: "none", borderRadius: "50%", width: 32, height: 32, cursor: "pointer" }}>‹</button>
+                      <button onClick={() => setPhotoIdx((photoIdx + 1) % photos.length)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", color: "#fff", border: "none", borderRadius: "50%", width: 32, height: 32, cursor: "pointer" }}>›</button>
+                    </React.Fragment>
+                  )}
+                  <span onClick={() => removePhoto(photoIdx)} style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.55)", color: "#fff", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Remove</span>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                  {photos.map((p, i) => (
+                    <div key={i} onClick={() => setPhotoIdx(i)} style={{ width: 44, height: 44, borderRadius: 6, overflow: "hidden", cursor: "pointer", border: i === photoIdx ? "2px solid #6B1E23" : "2px solid transparent" }}>
+                      <img src={p} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.opacity = 0.2} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : <div style={{ color: "#a39a89", fontSize: 13, marginBottom: 12 }}>No photos yet.</div>}
+            <div style={{ fontSize: 11.5, color: "#a39a89", marginBottom: 6 }}>Paste an image link (upload to Google Drive → "Anyone with link" → copy link, or any direct image URL)</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input className="beo-input" placeholder="https://…" value={newPhotoUrl} onChange={e => setNewPhotoUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && addPhoto()} />
+              <button className="beo-btn beo-btn-gold" onClick={addPhoto}>＋ Add</button>
+            </div>
+          </div>
+
+          <div className="beo-card" style={{ padding: 20 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Documents ({documents.length}/4)</div>
+            {documents.length === 0 && <div style={{ color: "#a39a89", fontSize: 13, marginBottom: 10 }}>No documents yet — e.g. Fact Sheet PDF, Room Rates PDF.</div>}
+            {documents.map(d => (
+              <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 13.5 }}>
+                <a href={d.url} target="_blank" rel="noreferrer" style={{ color: "#6B1E23", fontWeight: 600, textDecoration: "none" }}>📄 {d.label}</a>
+                <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeDoc(d.id)}>🗑</span>
+              </div>
+            ))}
+            {documents.length < 4 && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr auto", gap: 6, marginTop: 12, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
+                <input className="beo-input" placeholder="Label (e.g. Fact Sheet)" value={newDocLabel} onChange={e => setNewDocLabel(e.target.value)} />
+                <input className="beo-input" placeholder="https://… (PDF link)" value={newDocUrl} onChange={e => setNewDocUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && addDoc()} />
+                <button className="beo-btn beo-btn-primary" onClick={addDoc}>＋</button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="beo-card" style={{ padding: 20, alignSelf: "start" }}>
+          <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>Contacts</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Sales Manager</div>
+          <input className="beo-input" placeholder="Name" value={hotel.salesManager?.name || ""} onChange={e => update({ salesManager: { ...hotel.salesManager, name: e.target.value } })} style={{ marginBottom: 8 }} />
+          <input className="beo-input" placeholder="Phone number" value={hotel.salesManager?.phone || ""} onChange={e => update({ salesManager: { ...hotel.salesManager, phone: e.target.value } })} style={{ marginBottom: 18 }} />
+
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Alternate Contact</div>
+          <input className="beo-input" placeholder="Name" value={hotel.altContact?.name || ""} onChange={e => update({ altContact: { ...hotel.altContact, name: e.target.value } })} style={{ marginBottom: 8 }} />
+          <input className="beo-input" placeholder="Phone number" value={hotel.altContact?.phone || ""} onChange={e => update({ altContact: { ...hotel.altContact, phone: e.target.value } })} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================= CORPORATE QUOTES ============================= */
+
+function QuotesListView({ quotes, setQuotes, onOpen, onCreate, cities }) {
+  const removeQuote = (id) => setQuotes(prev => prev.filter(q => q.id !== id));
+  const hotelName = (q) => {
+    const c = cities.find(c => c.id === q.cityId);
+    const h = c && c.hotels.find(h => h.id === q.hotelId);
+    return h ? h.name : "No hotel selected";
+  };
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23" }}>Corporate Quotes</div>
+        <button className="beo-btn beo-btn-primary" onClick={onCreate}>＋ New corporate quote</button>
+      </div>
+      {quotes.length === 0 ? (
+        <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>No corporate quotes yet.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+          {quotes.map(q => (
+            <div key={q.id} className="beo-card" style={{ padding: 16, cursor: "pointer" }} onClick={() => onOpen(q.id)}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{q.name}</div>
+              <div style={{ fontSize: 12, color: "#8a8071", marginTop: 2 }}>{q.clientName || "No client name"} · {q.date}</div>
+              <div style={{ fontSize: 12.5, color: "#6B1E23", marginTop: 8 }}>🏨 {hotelName(q)}</div>
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <button className="beo-btn beo-btn-ghost" style={{ color: "#c9585d" }} onClick={(e) => { e.stopPropagation(); removeQuote(q.id); }}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
+  if (!quote) return null;
+  const update = (patch) => onChange({ ...quote, ...patch });
+
+  const city = cities.find(c => c.id === quote.cityId);
+  const hotel = city && city.hotels.find(h => h.id === quote.hotelId);
+
+  const rooms = quote.rooms || { qty: 0, rate: 0, nights: 1 };
+  const banquet = quote.banquet || { mode: "flat", pax: 0, rate: 0 };
+  const extraLines = quote.extraLines || [];
+
+  const roomsTotal = (Number(rooms.qty) || 0) * (Number(rooms.rate) || 0) * (Number(rooms.nights) || 0);
+  const banquetTotal = banquet.mode === "perPax" ? (Number(banquet.pax) || 0) * (Number(banquet.rate) || 0) : (Number(banquet.rate) || 0);
+  const extraTotal = extraLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.rate) || 0), 0);
+  const baseCost = roomsTotal + banquetTotal + extraTotal;
+
+  const profit = Number(quote.profit) || 0;
+  const commissionPct = Number(quote.commissionPercent) || 0;
+  const mode = quote.commissionMode || "final";
+  let finalBudget, commissionAmount;
+  if (mode === "final") {
+    if (commissionPct >= 100) { finalBudget = Infinity; commissionAmount = Infinity; }
+    else { finalBudget = (baseCost + profit) / (1 - commissionPct / 100); commissionAmount = finalBudget * (commissionPct / 100); }
+  } else {
+    commissionAmount = baseCost * (commissionPct / 100);
+    finalBudget = baseCost + profit + commissionAmount;
+  }
+
+  const addExtraLine = () => update({ extraLines: [...extraLines, { id: uid(), label: "", qty: 1, rate: 0 }] });
+  const updateExtraLine = (id, patch) => update({ extraLines: extraLines.map(l => l.id === id ? { ...l, ...patch } : l) });
+  const removeExtraLine = (id) => update({ extraLines: extraLines.filter(l => l.id !== id) });
+
+  const selectCity = (cityId) => update({ cityId, hotelId: "" });
+  const selectHotel = (hotelId) => update({ hotelId });
+
+  const exportQuotation = () => {
+    const printArea = document.getElementById("print-area");
+    const lineRows = [
+      rooms.qty ? `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">Rooms (${rooms.qty} rooms × ${rooms.nights} night${rooms.nights == 1 ? "" : "s"})</td><td></td></tr>` : "",
+      banquet.rate ? `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">Banquet${banquet.mode === "perPax" ? ` (${banquet.pax} pax)` : ""}</td><td></td></tr>` : "",
+      ...extraLines.filter(l => l.label).map(l => `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">${l.label}</td><td style="padding:8px 0;border-bottom:1px solid #eee;text-align:right;">${l.qty}</td></tr>`)
+    ].filter(Boolean).join("");
+    printArea.innerHTML = `
+      <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#6B1E23;">Bloom Event Organizer</div>
+      <div style="font-family:Inter,sans-serif;font-size:13px;color:#8a8071;margin-bottom:20px;">Corporate Event Quotation</div>
+      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:4px;"><b>Client:</b> ${quote.clientName || "—"}</div>
+      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:4px;"><b>Venue:</b> ${hotel ? hotel.name : "—"}${city ? " · " + city.name : ""}</div>
+      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:20px;"><b>Date:</b> ${quote.date}</div>
+      <table style="width:100%;border-collapse:collapse;font-family:Inter,sans-serif;font-size:14px;margin-bottom:24px;">
+        <thead><tr><th style="text-align:left;border-bottom:2px solid #6B1E23;padding-bottom:8px;">Item / Service</th><th style="text-align:right;border-bottom:2px solid #6B1E23;padding-bottom:8px;">Qty</th></tr></thead>
+        <tbody>${lineRows}</tbody>
+      </table>
+      <div style="background:#6B1E23;color:#FAF6EE;padding:16px 20px;border-radius:8px;font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:700;">
+        Total Budget: ${inr(finalBudget)}
+      </div>
+    `;
+    window.print();
+  };
+
+  return (
+    <div>
+      <button className="beo-btn beo-btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>← Back to corporate quotes</button>
+      <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+        <input className="beo-input" style={{ fontSize: 18, fontWeight: 600, flex: "1 1 220px" }} value={quote.name} onChange={e => update({ name: e.target.value })} />
+        <input className="beo-input" placeholder="Client name" value={quote.clientName} onChange={e => update({ clientName: e.target.value })} style={{ width: 180 }} />
+        <input className="beo-input" type="date" value={quote.date} onChange={e => update({ date: e.target.value })} style={{ width: 160 }} />
+        <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
+      </div>
+
+      <div className="builder-col">
+        <div>
+          <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Venue</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: hotel ? 12 : 0, flexWrap: "wrap" }}>
+              <select className="beo-input" style={{ flex: 1 }} value={quote.cityId || ""} onChange={e => selectCity(e.target.value)}>
+                <option value="">Select city…</option>
+                {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <select className="beo-input" style={{ flex: 1 }} value={quote.hotelId || ""} onChange={e => selectHotel(e.target.value)} disabled={!city}>
+                <option value="">Select hotel…</option>
+                {city && city.hotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+              </select>
+            </div>
+            {hotel && (
+              <div style={{ background: "#FAF6EE", borderRadius: 8, padding: 12, fontSize: 13 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>{hotel.name}</div>
+                {hotel.description && <div style={{ color: "#8a8071", marginBottom: 6, fontSize: 12.5 }}>{hotel.description.slice(0, 160)}{hotel.description.length > 160 ? "…" : ""}</div>}
+                {hotel.salesManager?.name && <div style={{ fontSize: 12 }}>📞 {hotel.salesManager.name} — {hotel.salesManager.phone}</div>}
+              </div>
+            )}
+          </div>
+
+          <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Rooms</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div>
+                <label style={{ fontSize: 11.5, color: "#8a8071" }}>Rooms</label>
+                <input className="beo-input" type="number" value={rooms.qty} onChange={e => update({ rooms: { ...rooms, qty: Number(e.target.value) || 0 } })} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11.5, color: "#8a8071" }}>Rate / night (₹)</label>
+                <input className="beo-input" type="number" value={rooms.rate} onChange={e => update({ rooms: { ...rooms, rate: Number(e.target.value) || 0 } })} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11.5, color: "#8a8071" }}>Nights</label>
+                <input className="beo-input" type="number" value={rooms.nights} onChange={e => update({ rooms: { ...rooms, nights: Number(e.target.value) || 0 } })} />
+              </div>
+            </div>
+            <div style={{ textAlign: "right", fontSize: 13, marginTop: 8, color: "#6B1E23", fontWeight: 600 }}>Rooms total: {inr(roomsTotal)}</div>
+          </div>
+
+          <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Banquet</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              <button className="beo-btn" onClick={() => update({ banquet: { ...banquet, mode: "flat" } })} style={{ flex: 1, padding: "8px 6px", fontSize: 12.5, borderRadius: 6, background: banquet.mode === "flat" ? "#6B1E23" : "#F1EADA", color: banquet.mode === "flat" ? "#FAF6EE" : "#6B1E23" }}>Flat cost</button>
+              <button className="beo-btn" onClick={() => update({ banquet: { ...banquet, mode: "perPax" } })} style={{ flex: 1, padding: "8px 6px", fontSize: 12.5, borderRadius: 6, background: banquet.mode === "perPax" ? "#6B1E23" : "#F1EADA", color: banquet.mode === "perPax" ? "#FAF6EE" : "#6B1E23" }}>Per pax</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: banquet.mode === "perPax" ? "1fr 1fr" : "1fr", gap: 8 }}>
+              {banquet.mode === "perPax" && (
+                <div>
+                  <label style={{ fontSize: 11.5, color: "#8a8071" }}>Pax</label>
+                  <input className="beo-input" type="number" value={banquet.pax} onChange={e => update({ banquet: { ...banquet, pax: Number(e.target.value) || 0 } })} />
+                </div>
+              )}
+              <div>
+                <label style={{ fontSize: 11.5, color: "#8a8071" }}>{banquet.mode === "perPax" ? "Rate per pax (₹)" : "Flat banquet cost (₹)"}</label>
+                <input className="beo-input" type="number" value={banquet.rate} onChange={e => update({ banquet: { ...banquet, rate: Number(e.target.value) || 0 } })} />
+              </div>
+            </div>
+            <div style={{ textAlign: "right", fontSize: 13, marginTop: 8, color: "#6B1E23", fontWeight: 600 }}>Banquet total: {inr(banquetTotal)}</div>
+          </div>
+
+          <div className="beo-card" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Other items (F&B, transport, decor, misc.)</div>
+            {extraLines.length === 0 && <div style={{ color: "#a39a89", fontSize: 13, marginBottom: 8 }}>No extra items yet.</div>}
+            {extraLines.map(l => (
+              <div key={l.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px 100px 90px 24px", gap: 6, alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 13 }}>
+                <input className="beo-input" placeholder="Label" value={l.label} onChange={e => updateExtraLine(l.id, { label: e.target.value })} style={{ padding: "5px 6px" }} />
+                <input className="beo-input" type="number" placeholder="Qty" value={l.qty} onChange={e => updateExtraLine(l.id, { qty: Number(e.target.value) || 0 })} style={{ padding: "5px 6px" }} />
+                <input className="beo-input" type="number" placeholder="Rate ₹" value={l.rate} onChange={e => updateExtraLine(l.id, { rate: Number(e.target.value) || 0 })} style={{ padding: "5px 6px" }} />
+                <div>{inr((Number(l.qty) || 0) * (Number(l.rate) || 0))}</div>
+                <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeExtraLine(l.id)}>×</span>
+              </div>
+            ))}
+            <button className="beo-btn beo-btn-ghost" onClick={addExtraLine} style={{ marginTop: 10 }}>＋ Add item</button>
+          </div>
+        </div>
+
+        <div className="beo-card" style={{ padding: 20, alignSelf: "start" }}>
+          <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 4 }}>Final Budget Calculator</div>
+          <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 16 }}>Commission on the final client budget by default.</div>
+          <Row label="Rooms" value={inr(roomsTotal)} />
+          <Row label="Banquet" value={inr(banquetTotal)} />
+          <Row label="Other items" value={inr(extraTotal)} />
+          <div style={{ borderTop: "1px dashed #E4DCC8", margin: "10px 0" }} />
+          <Row label="Base cost (total)" value={inr(baseCost)} />
+          <div style={{ margin: "14px 0" }}>
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>Your desired profit (₹)</label>
+            <input className="beo-input" type="number" value={quote.profit} onChange={e => update({ profit: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+          </div>
+          <div style={{ margin: "14px 0" }}>
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>Hotel commission (%)</label>
+            <input className="beo-input" type="number" value={quote.commissionPercent} onChange={e => update({ commissionPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
           </div>
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600, display: "block", marginBottom: 6 }}>Commission is calculated on</label>
