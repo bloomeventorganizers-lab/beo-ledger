@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-<title>BEO Costing Ledger</title>
+<title>The Executive Events — Costing Ledger</title>
 <link rel="icon" href="data:,">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -106,7 +106,7 @@ function LoginScreen({ onError, error }) {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div className="beo-card" style={{ padding: 30, maxWidth: 360, width: "100%" }}>
-        <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700, color: "#6B1E23", marginBottom: 4 }}>BEO Costing Ledger</div>
+        <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700, color: "#6B1E23", marginBottom: 4 }}>The Executive Events</div>
         <div style={{ fontSize: 12.5, color: "#8a8071", marginBottom: 20 }}>Sign in with the account you created in Firebase.</div>
         <input className="beo-input" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={{ marginBottom: 10 }} />
         <input className="beo-input" placeholder="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && signIn()} style={{ marginBottom: 14 }} />
@@ -198,7 +198,7 @@ function MainApp({ user }) {
     <div style={{ minHeight: "100vh" }}>
       <div style={{ borderBottom: "1px solid #EDE6D6", background: "#fff", padding: "18px 20px", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23" }}>BEO Costing Ledger</div>
+          <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23" }}>The Executive Events</div>
           <div style={{ fontSize: 11.5, color: syncStatus === "error" ? "#c9585d" : "#8a8071", marginTop: 2 }}>
             {syncStatus === "syncing" ? "Syncing…" : syncStatus === "error" ? "Sync error — check connection" : `Synced · ${user.email}`}
           </div>
@@ -389,7 +389,7 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
     const printArea = document.getElementById("print-area");
     const rows = budget.lines.map(l => `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">${l.name}</td><td style="padding:8px 0;border-bottom:1px solid #eee;text-align:right;">${l.qty}</td></tr>`).join("");
     printArea.innerHTML = `
-      <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#6B1E23;">Bloom Event Organizer</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#6B1E23;">The Executive Events</div>
       <div style="font-family:Inter,sans-serif;font-size:13px;color:#8a8071;margin-bottom:20px;">Event Quotation</div>
       <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:6px;"><b>Client:</b> ${budget.clientName || "—"}</div>
       <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:20px;"><b>Date:</b> ${budget.date}</div>
@@ -737,7 +737,7 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
       ...extraLines.filter(l => l.label).map(l => `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">${l.label}</td><td style="padding:8px 0;border-bottom:1px solid #eee;text-align:right;">${l.qty}</td></tr>`)
     ].filter(Boolean).join("");
     printArea.innerHTML = `
-      <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#6B1E23;">Bloom Event Organizer</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#6B1E23;">The Executive Events</div>
       <div style="font-family:Inter,sans-serif;font-size:13px;color:#8a8071;margin-bottom:20px;">Corporate Event Quotation</div>
       <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:4px;"><b>Client:</b> ${quote.clientName || "—"}</div>
       <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:4px;"><b>Venue:</b> ${hotel ? hotel.name : "—"}${city ? " · " + city.name : ""}</div>
