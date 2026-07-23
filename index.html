@@ -47,6 +47,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script>
   const firebaseConfig = {
     apiKey: "AIzaSyAonhNy2VWcC0n7gPTIQbzW9taiFUpdQd8",
@@ -59,6 +60,7 @@
   firebase.initializeApp(firebaseConfig);
   window.__auth = firebase.auth();
   window.__db = firebase.firestore();
+  window.__storage = firebase.storage();
 </script>
 
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -84,6 +86,7 @@ const statusColor = (status) => ({
   "Dead lead": { bg: "#F5DCDC", fg: "#B33A3A" },
 }[status] || { bg: "#F1EADA", fg: "#8a8071" });
 const waLink = (phone) => "https://wa.me/" + String(phone || "").replace(/[^0-9]/g, "");
+const photoUrlOf = (p) => (p && typeof p === "object" ? p.url : p);
 
 function App() {
   const [user, setUser] = useState(undefined);
@@ -646,7 +649,7 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
               {filteredResults.map(h => (
                 <div key={h.id} className="beo-card" style={{ padding: 14, cursor: "pointer", position: "relative" }} onClick={() => onOpenHotel(h.__cityId, h.id)}>
                   {h.photos && h.photos[0] && (
-                    <img src={h.photos[0]} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
+                    <img src={photoUrlOf(h.photos[0])} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
                   )}
                   <div style={{ fontSize: 11, color: "#B8934A", fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>📍 {h.__cityName}</div>
                   <div style={{ fontWeight: 700, fontSize: 14.5 }}>{h.name}</div>
@@ -710,7 +713,7 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
                   {openCity.hotels.map(h => (
                     <div key={h.id} className="beo-card" style={{ padding: 14, cursor: "pointer", position: "relative" }} onClick={() => onOpenHotel(openCity.id, h.id)}>
                       {h.photos && h.photos[0] && (
-                        <img src={h.photos[0]} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
+                        <img src={photoUrlOf(h.photos[0])} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
                       )}
                       <div style={{ fontWeight: 700, fontSize: 14.5 }}>{h.name}</div>
                       {h.brand && <div style={{ fontSize: 11, color: "#6B1E23", fontWeight: 600, marginTop: 2 }}>{h.brand}</div>}
@@ -741,6 +744,9 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
   const [newDocLabel, setNewDocLabel] = useState("");
   const [newDocUrl, setNewDocUrl] = useState("");
   const [newNoteText, setNewNoteText] = useState("");
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [uploadError, setUploadError] = useState("");
 
   if (!hotel) return null;
   const update = (patch) => onChange({ ...hotel, ...patch });
@@ -748,6 +754,7 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
   const documents = hotel.documents || [];
   const notes = hotel.notes || [];
   const relatedQuotes = (quotes || []).filter(q => q.hotelId === hotel.id).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const photoUrl = (p) => (typeof p === "string" ? p : p.url);
 
   const addNote = () => {
     if (!newNoteText.trim()) return;
@@ -779,7 +786,28 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
     update({ photos: [...photos, toDirectImageUrl(newPhotoUrl)] });
     setNewPhotoUrl("");
   };
+  const uploadPhotoFile = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadError("");
+    setUploadingPhoto(true);
+    try {
+      const path = `hotels/${hotel.id}/photos/${Date.now()}_${file.name}`;
+      const ref = window.__storage.ref().child(path);
+      await ref.put(file);
+      const url = await ref.getDownloadURL();
+      update({ photos: [...photos, { url, storagePath: path }] });
+    } catch (err) {
+      setUploadError("Upload failed: " + err.message);
+    }
+    setUploadingPhoto(false);
+  };
   const removePhoto = (i) => {
+    const target = photos[i];
+    if (target && typeof target === "object" && target.storagePath) {
+      window.__storage.ref().child(target.storagePath).delete().catch(() => {});
+    }
     update({ photos: photos.filter((_, idx) => idx !== i) });
     setPhotoIdx(0);
   };
@@ -788,7 +816,31 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
     update({ documents: [...documents, { id: uid(), label: newDocLabel.trim() || "Document", url: newDocUrl.trim() }] });
     setNewDocLabel(""); setNewDocUrl("");
   };
-  const removeDoc = (id) => update({ documents: documents.filter(d => d.id !== id) });
+  const uploadDocFile = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file || documents.length >= 4) return;
+    setUploadError("");
+    setUploadingDoc(true);
+    try {
+      const path = `hotels/${hotel.id}/documents/${Date.now()}_${file.name}`;
+      const ref = window.__storage.ref().child(path);
+      await ref.put(file);
+      const url = await ref.getDownloadURL();
+      update({ documents: [...documents, { id: uid(), label: newDocLabel.trim() || file.name, url, storagePath: path }] });
+      setNewDocLabel("");
+    } catch (err) {
+      setUploadError("Upload failed: " + err.message);
+    }
+    setUploadingDoc(false);
+  };
+  const removeDoc = (id) => {
+    const target = documents.find(d => d.id === id);
+    if (target && target.storagePath) {
+      window.__storage.ref().child(target.storagePath).delete().catch(() => {});
+    }
+    update({ documents: documents.filter(d => d.id !== id) });
+  };
 
   const exportProfile = () => {
     const printArea = document.getElementById("print-area");
@@ -829,7 +881,7 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
             {photos.length > 0 ? (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ position: "relative", width: "100%", height: 260, borderRadius: 8, overflow: "hidden", background: "#F1EADA" }}>
-                  <img src={photos[photoIdx]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.opacity = 0.2} />
+                  <img src={photoUrl(photos[photoIdx])} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.opacity = 0.2} />
                   {photos.length > 1 && (
                     <React.Fragment>
                       <button onClick={() => setPhotoIdx((photoIdx - 1 + photos.length) % photos.length)} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", color: "#fff", border: "none", borderRadius: "50%", width: 32, height: 32, cursor: "pointer" }}>‹</button>
@@ -841,13 +893,21 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
                 <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                   {photos.map((p, i) => (
                     <div key={i} onClick={() => setPhotoIdx(i)} style={{ width: 44, height: 44, borderRadius: 6, overflow: "hidden", cursor: "pointer", border: i === photoIdx ? "2px solid #6B1E23" : "2px solid transparent" }}>
-                      <img src={p} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.opacity = 0.2} />
+                      <img src={photoUrl(p)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.opacity = 0.2} />
                     </div>
                   ))}
                 </div>
               </div>
             ) : <div style={{ color: "#a39a89", fontSize: 13, marginBottom: 12 }}>No photos yet.</div>}
-            <div style={{ fontSize: 11.5, color: "#a39a89", marginBottom: 6 }}>Paste an image link (upload to Google Drive → "Anyone with link" → copy link, or any direct image URL)</div>
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+              <label className="beo-btn beo-btn-primary" style={{ cursor: uploadingPhoto ? "default" : "pointer", opacity: uploadingPhoto ? 0.6 : 1 }}>
+                {uploadingPhoto ? "Uploading…" : "⬆ Upload from PC"}
+                <input type="file" accept="image/*" onChange={uploadPhotoFile} disabled={uploadingPhoto} style={{ display: "none" }} />
+              </label>
+              <span style={{ fontSize: 11.5, color: "#a39a89" }}>or paste a link below</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: "#a39a89", marginBottom: 6 }}>Paste an image link (Google Drive share link, Imgur, or any direct image URL)</div>
             <div style={{ display: "flex", gap: 6 }}>
               <input className="beo-input" placeholder="https://…" value={newPhotoUrl} onChange={e => setNewPhotoUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && addPhoto()} />
               <button className="beo-btn beo-btn-gold" onClick={addPhoto}>＋ Add</button>
@@ -864,12 +924,22 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
               </div>
             ))}
             {documents.length < 4 && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr auto", gap: 6, marginTop: 12, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
-                <input className="beo-input" placeholder="Label (e.g. Fact Sheet)" value={newDocLabel} onChange={e => setNewDocLabel(e.target.value)} />
-                <input className="beo-input" placeholder="https://… (PDF link)" value={newDocUrl} onChange={e => setNewDocUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && addDoc()} />
-                <button className="beo-btn beo-btn-primary" onClick={addDoc}>＋</button>
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
+                <input className="beo-input" placeholder="Label (e.g. Fact Sheet)" value={newDocLabel} onChange={e => setNewDocLabel(e.target.value)} style={{ marginBottom: 8 }} />
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+                  <label className="beo-btn beo-btn-primary" style={{ cursor: uploadingDoc ? "default" : "pointer", opacity: uploadingDoc ? 0.6 : 1 }}>
+                    {uploadingDoc ? "Uploading…" : "⬆ Upload PDF from PC"}
+                    <input type="file" accept="application/pdf" onChange={uploadDocFile} disabled={uploadingDoc} style={{ display: "none" }} />
+                  </label>
+                  <span style={{ fontSize: 11.5, color: "#a39a89" }}>or paste a link below</span>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input className="beo-input" placeholder="https://… (PDF link)" value={newDocUrl} onChange={e => setNewDocUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && addDoc()} />
+                  <button className="beo-btn beo-btn-gold" onClick={addDoc}>＋</button>
+                </div>
               </div>
             )}
+            {uploadError && <div style={{ color: "#c9585d", fontSize: 12, marginTop: 10 }}>{uploadError}</div>}
           </div>
 
           <div className="beo-card" style={{ padding: 20, marginTop: 16 }}>
