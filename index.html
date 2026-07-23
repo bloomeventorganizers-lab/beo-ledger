@@ -757,9 +757,26 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
   };
   const removeNote = (id) => update({ notes: notes.filter(n => n.id !== id) });
 
+  const toDirectImageUrl = (url) => {
+    let u = url.trim();
+    // Google Images search result page → extract the real image URL
+    if (u.includes("google.com/imgres")) {
+      try {
+        const params = new URL(u).searchParams;
+        const real = params.get("imgurl");
+        if (real) return decodeURIComponent(real);
+      } catch (e) {}
+    }
+    // Google Drive share link → convert to a directly-renderable image URL
+    let m = u.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+    if (!m) m = u.match(/drive\.google\.com\/open\?id=([^&]+)/);
+    if (!m) m = u.match(/[?&]id=([^&]+)/);
+    if (m && m[1]) return `https://lh3.googleusercontent.com/d/${m[1]}`;
+    return u;
+  };
   const addPhoto = () => {
     if (!newPhotoUrl.trim()) return;
-    update({ photos: [...photos, newPhotoUrl.trim()] });
+    update({ photos: [...photos, toDirectImageUrl(newPhotoUrl)] });
     setNewPhotoUrl("");
   };
   const removePhoto = (i) => {
