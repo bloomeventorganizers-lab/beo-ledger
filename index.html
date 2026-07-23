@@ -735,16 +735,27 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
   );
 }
 
-function HotelDetail({ city, hotel, onBack, onChange }) {
+function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
   const [photoIdx, setPhotoIdx] = useState(0);
   const [newPhotoUrl, setNewPhotoUrl] = useState("");
   const [newDocLabel, setNewDocLabel] = useState("");
   const [newDocUrl, setNewDocUrl] = useState("");
+  const [newNoteText, setNewNoteText] = useState("");
 
   if (!hotel) return null;
   const update = (patch) => onChange({ ...hotel, ...patch });
   const photos = hotel.photos || [];
   const documents = hotel.documents || [];
+  const notes = hotel.notes || [];
+  const relatedQuotes = (quotes || []).filter(q => q.hotelId === hotel.id).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  const addNote = () => {
+    if (!newNoteText.trim()) return;
+    const note = { id: uid(), date: new Date().toISOString().slice(0, 10), text: newNoteText.trim() };
+    update({ notes: [note, ...notes] });
+    setNewNoteText("");
+  };
+  const removeNote = (id) => update({ notes: notes.filter(n => n.id !== id) });
 
   const addPhoto = () => {
     if (!newPhotoUrl.trim()) return;
@@ -762,9 +773,30 @@ function HotelDetail({ city, hotel, onBack, onChange }) {
   };
   const removeDoc = (id) => update({ documents: documents.filter(d => d.id !== id) });
 
+  const exportProfile = () => {
+    const printArea = document.getElementById("print-area");
+    const docRows = documents.map(d => `<div style="margin-bottom:4px;">📄 ${d.label}: ${d.url}</div>`).join("");
+    const noteRows = notes.map(n => `<div style="margin-bottom:4px;"><b>${n.date}:</b> ${n.text}</div>`).join("");
+    printArea.innerHTML = `
+      <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#6B1E23;">${hotel.name}</div>
+      <div style="font-family:Inter,sans-serif;font-size:13px;color:#8a8071;margin-bottom:16px;">${hotel.brand || ""} ${city ? "· " + city.name : ""}</div>
+      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:16px;white-space:pre-wrap;">${hotel.description || ""}</div>
+      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:10px;"><b>Sales Manager:</b> ${hotel.salesManager?.name || "—"} ${hotel.salesManager?.phone ? "— " + hotel.salesManager.phone : ""}</div>
+      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:16px;"><b>Alternate Contact:</b> ${hotel.altContact?.name || "—"} ${hotel.altContact?.phone ? "— " + hotel.altContact.phone : ""}</div>
+      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:6px;"><b>Documents</b></div>
+      ${docRows || "<div>None added</div>"}
+      <div style="font-family:Inter,sans-serif;font-size:14px;margin:16px 0 6px;"><b>Notes</b></div>
+      ${noteRows || "<div>None added</div>"}
+    `;
+    window.print();
+  };
+
   return (
     <div>
-      <button className="beo-btn beo-btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>← Back to {city ? city.name : "Hotels"}</button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <button className="beo-btn beo-btn-ghost" onClick={onBack}>← Back to {city ? city.name : "Hotels"}</button>
+        <button className="beo-btn beo-btn-gold" onClick={exportProfile}>📄 Export Profile PDF</button>
+      </div>
       <div className="builder-col">
         <div>
           <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
@@ -853,12 +885,61 @@ function HotelDetail({ city, hotel, onBack, onChange }) {
           <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>Contacts</div>
           <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Sales Manager</div>
           <input className="beo-input" placeholder="Name" value={hotel.salesManager?.name || ""} onChange={e => update({ salesManager: { ...hotel.salesManager, name: e.target.value } })} style={{ marginBottom: 8 }} />
-          <input className="beo-input" placeholder="Phone number" value={hotel.salesManager?.phone || ""} onChange={e => update({ salesManager: { ...hotel.salesManager, phone: e.target.value } })} style={{ marginBottom: 18 }} />
+          <input className="beo-input" placeholder="Phone number" value={hotel.salesManager?.phone || ""} onChange={e => update({ salesManager: { ...hotel.salesManager, phone: e.target.value } })} style={{ marginBottom: 8 }} />
+          {hotel.salesManager?.phone && (
+            <a href={waLink(hotel.salesManager.phone)} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginBottom: 18, fontSize: 12.5, color: "#2E7D32", fontWeight: 600, textDecoration: "none" }}>💬 WhatsApp {hotel.salesManager.name || "Sales Manager"}</a>
+          )}
+          {!hotel.salesManager?.phone && <div style={{ marginBottom: 18 }} />}
 
           <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Alternate Contact</div>
           <input className="beo-input" placeholder="Name" value={hotel.altContact?.name || ""} onChange={e => update({ altContact: { ...hotel.altContact, name: e.target.value } })} style={{ marginBottom: 8 }} />
-          <input className="beo-input" placeholder="Phone number" value={hotel.altContact?.phone || ""} onChange={e => update({ altContact: { ...hotel.altContact, phone: e.target.value } })} />
+          <input className="beo-input" placeholder="Phone number" value={hotel.altContact?.phone || ""} onChange={e => update({ altContact: { ...hotel.altContact, phone: e.target.value } })} style={{ marginBottom: 8 }} />
+          {hotel.altContact?.phone && (
+            <a href={waLink(hotel.altContact.phone)} target="_blank" rel="noreferrer" style={{ display: "inline-block", fontSize: 12.5, color: "#2E7D32", fontWeight: 600, textDecoration: "none" }}>💬 WhatsApp {hotel.altContact.name || "Alternate Contact"}</a>
+          )}
         </div>
+      </div>
+
+      <div className="beo-card" style={{ padding: 20, marginTop: 16 }}>
+        <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>Status & Follow-up</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Outreach status</label>
+            <select className="beo-input" value={hotel.status || "Not contacted"} onChange={e => update({ status: e.target.value })} style={{ marginTop: 4 }}>
+              {HOTEL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Last contacted date</label>
+            <input className="beo-input" type="date" value={hotel.lastContactedDate || ""} onChange={e => update({ lastContactedDate: e.target.value })} style={{ marginTop: 4 }} />
+          </div>
+        </div>
+        <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>Notes log</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          <input className="beo-input" placeholder="e.g. Spoke to Amit, 30 rooms only, quoted commissionable rate" value={newNoteText} onChange={e => setNewNoteText(e.target.value)} onKeyDown={e => e.key === "Enter" && addNote()} />
+          <button className="beo-btn beo-btn-primary" onClick={addNote}>＋ Add note</button>
+        </div>
+        {notes.length === 0 ? <div style={{ color: "#a39a89", fontSize: 13 }}>No notes yet.</div> : notes.map(n => (
+          <div key={n.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "start", padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 13 }}>
+            <div><b style={{ color: "#6B1E23" }}>{n.date}:</b> {n.text}</div>
+            <span style={{ color: "#c98b8e", cursor: "pointer", marginLeft: 10, flexShrink: 0 }} onClick={() => removeNote(n.id)}>🗑</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="beo-card" style={{ padding: 20, marginTop: 16 }}>
+        <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>Quotation History</div>
+        {relatedQuotes.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 13 }}>No corporate quotes created for this hotel yet.</div>
+        ) : relatedQuotes.map(q => (
+          <div key={q.id} onClick={() => onOpenQuote(q.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 8px", borderTop: "1px solid #F1EADA", cursor: "pointer", fontSize: 13.5 }}>
+            <div>
+              <div style={{ fontWeight: 600 }}>{q.name}</div>
+              <div style={{ fontSize: 11.5, color: "#8a8071" }}>{q.clientName || "No client name"} · {q.date}</div>
+            </div>
+            <span style={{ color: "#6B1E23", fontSize: 12 }}>Open →</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -933,6 +1014,8 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
 
   const selectCity = (cityId) => update({ cityId, hotelId: "" });
   const selectHotel = (hotelId) => update({ hotelId });
+  const currency = quote.currency || "₹";
+  const cur = (n) => fmtCurrency(n, currency);
 
   const exportQuotation = () => {
     const printArea = document.getElementById("print-area");
@@ -952,7 +1035,7 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
         <tbody>${lineRows}</tbody>
       </table>
       <div style="background:#6B1E23;color:#FAF6EE;padding:16px 20px;border-radius:8px;font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:700;">
-        Total Budget: ${inr(finalBudget)}
+        Total Budget: ${cur(finalBudget)}
       </div>
     `;
     window.print();
@@ -965,6 +1048,9 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
         <input className="beo-input" style={{ fontSize: 18, fontWeight: 600, flex: "1 1 220px" }} value={quote.name} onChange={e => update({ name: e.target.value })} />
         <input className="beo-input" placeholder="Client name" value={quote.clientName} onChange={e => update({ clientName: e.target.value })} style={{ width: 180 }} />
         <input className="beo-input" type="date" value={quote.date} onChange={e => update({ date: e.target.value })} style={{ width: 160 }} />
+        <select className="beo-input" style={{ width: 90 }} value={currency} onChange={e => update({ currency: e.target.value })}>
+          {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
         <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
       </div>
 
@@ -1007,7 +1093,7 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
                 <input className="beo-input" type="number" value={rooms.nights} onChange={e => update({ rooms: { ...rooms, nights: Number(e.target.value) || 0 } })} />
               </div>
             </div>
-            <div style={{ textAlign: "right", fontSize: 13, marginTop: 8, color: "#6B1E23", fontWeight: 600 }}>Rooms total: {inr(roomsTotal)}</div>
+            <div style={{ textAlign: "right", fontSize: 13, marginTop: 8, color: "#6B1E23", fontWeight: 600 }}>Rooms total: {cur(roomsTotal)}</div>
           </div>
 
           <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
@@ -1028,7 +1114,7 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
                 <input className="beo-input" type="number" value={banquet.rate} onChange={e => update({ banquet: { ...banquet, rate: Number(e.target.value) || 0 } })} />
               </div>
             </div>
-            <div style={{ textAlign: "right", fontSize: 13, marginTop: 8, color: "#6B1E23", fontWeight: 600 }}>Banquet total: {inr(banquetTotal)}</div>
+            <div style={{ textAlign: "right", fontSize: 13, marginTop: 8, color: "#6B1E23", fontWeight: 600 }}>Banquet total: {cur(banquetTotal)}</div>
           </div>
 
           <div className="beo-card" style={{ padding: 16 }}>
@@ -1039,7 +1125,7 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
                 <input className="beo-input" placeholder="Label" value={l.label} onChange={e => updateExtraLine(l.id, { label: e.target.value })} style={{ padding: "5px 6px" }} />
                 <input className="beo-input" type="number" placeholder="Qty" value={l.qty} onChange={e => updateExtraLine(l.id, { qty: Number(e.target.value) || 0 })} style={{ padding: "5px 6px" }} />
                 <input className="beo-input" type="number" placeholder="Rate ₹" value={l.rate} onChange={e => updateExtraLine(l.id, { rate: Number(e.target.value) || 0 })} style={{ padding: "5px 6px" }} />
-                <div>{inr((Number(l.qty) || 0) * (Number(l.rate) || 0))}</div>
+                <div>{cur((Number(l.qty) || 0) * (Number(l.rate) || 0))}</div>
                 <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeExtraLine(l.id)}>×</span>
               </div>
             ))}
@@ -1050,11 +1136,11 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
         <div className="beo-card" style={{ padding: 20, alignSelf: "start" }}>
           <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 4 }}>Final Budget Calculator</div>
           <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 16 }}>Commission on the final client budget by default.</div>
-          <Row label="Rooms" value={inr(roomsTotal)} />
-          <Row label="Banquet" value={inr(banquetTotal)} />
-          <Row label="Other items" value={inr(extraTotal)} />
+          <Row label="Rooms" value={cur(roomsTotal)} />
+          <Row label="Banquet" value={cur(banquetTotal)} />
+          <Row label="Other items" value={cur(extraTotal)} />
           <div style={{ borderTop: "1px dashed #E4DCC8", margin: "10px 0" }} />
-          <Row label="Base cost (total)" value={inr(baseCost)} />
+          <Row label="Base cost (total)" value={cur(baseCost)} />
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Your desired profit (₹)</label>
             <input className="beo-input" type="number" value={quote.profit} onChange={e => update({ profit: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
@@ -1071,14 +1157,14 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
             </div>
           </div>
           <div style={{ borderTop: "1px dashed #E4DCC8", margin: "16px 0", paddingTop: 14 }}>
-            <Row label="Base cost" value={inr(baseCost)} />
-            <Row label="Your profit" value={inr(profit)} />
-            <Row label={`Hotel commission (${commissionPct}%)`} value={(commissionPct >= 100 && mode === "final") ? "—" : inr(commissionAmount)} />
+            <Row label="Base cost" value={cur(baseCost)} />
+            <Row label="Your profit" value={cur(profit)} />
+            <Row label={`Hotel commission (${commissionPct}%)`} value={(commissionPct >= 100 && mode === "final") ? "—" : cur(commissionAmount)} />
           </div>
           <div style={{ background: "#6B1E23", borderRadius: 8, padding: "14px 16px" }}>
             <div style={{ fontSize: 12, color: "#E9D9B8" }}>Quote to client</div>
             <div className="beo-serif" style={{ fontSize: 28, fontWeight: 700, color: "#FAF6EE" }}>
-              {(commissionPct >= 100 && mode === "final") ? "Set commission < 100%" : inr(finalBudget)}
+              {(commissionPct >= 100 && mode === "final") ? "Set commission < 100%" : cur(finalBudget)}
             </div>
           </div>
         </div>
