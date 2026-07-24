@@ -73,6 +73,7 @@ const auth = window.__auth;
 const db = window.__db;
 
 const DEFAULT_CATEGORIES = ["Entries", "SFX", "Welcome", "Itineraries", "Hotels", "Live Band", "Games", "Stationery"];
+const ADMIN_EMAIL = "bloomeventorganizers@gmail.com";
 const uid = () => Math.random().toString(36).slice(2, 10);
 const inr = (n) => "₹" + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 const fmtCurrency = (n, symbol) => (symbol || "₹") + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -134,49 +135,95 @@ function LoginScreen({ onError, error }) {
 }
 
 function MainApp({ user }) {
+  const isAdmin = user.email === ADMIN_EMAIL;
   const [loaded, setLoaded] = useState(false);
   const [categories, setCategories] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [cities, setCities] = useState([]);
   const [corpQuotes, setCorpQuotes] = useState([]);
-  const [tab, setTab] = useState("inventory");
+  const [tab, setTab] = useState(isAdmin ? "inventory" : "hotels");
   const [activeBudgetId, setActiveBudgetId] = useState(null);
   const [activeCityId, setActiveCityId] = useState(null);
   const [activeHotelId, setActiveHotelId] = useState(null);
   const [activeQuoteId, setActiveQuoteId] = useState(null);
   const [syncStatus, setSyncStatus] = useState("syncing");
-  const skipNextSave = useRef(false);
-  const docRef = db.collection("beoUsers").doc(user.uid);
+  const skipNextPersonalSave = useRef(false);
+  const skipNextSharedSave = useRef(false);
+  const [personalLoaded, setPersonalLoaded] = useState(false);
+  const [sharedLoaded, setSharedLoaded] = useState(false);
+  const migratedRef = useRef(false);
+  const personalDocRef = db.collection("beoUsers").doc(user.uid);
+  const sharedDocRef = db.collection("sharedData").doc("hotelsQuotes");
 
+  // Shared data (Hotels + Corporate Quotes) — visible to every logged-in device, admin or corporate team
   useEffect(() => {
-    const unsub = docRef.onSnapshot(snap => {
+    const unsub = sharedDocRef.onSnapshot(snap => {
       const data = snap.data();
-      skipNextSave.current = true;
-      if (data && data.categories) setCategories(data.categories);
-      else setCategories(DEFAULT_CATEGORIES.map(n => ({ id: uid(), name: n, items: [] })));
-      if (data && data.budgets) setBudgets(data.budgets);
-      else setBudgets([]);
+      skipNextSharedSave.current = true;
       if (data && data.cities) setCities(data.cities);
       else setCities([]);
       if (data && data.corpQuotes) setCorpQuotes(data.corpQuotes);
       else setCorpQuotes([]);
-      setLoaded(true);
-      setSyncStatus("synced");
+      setSharedLoaded(true);
     }, err => {
       console.error(err);
       setSyncStatus("error");
+      setSharedLoaded(true);
     });
     return unsub;
   }, []);
 
+  // Personal data (Inventory + Client Budgets) — admin only
   useEffect(() => {
-    if (!loaded) return;
-    if (skipNextSave.current) { skipNextSave.current = false; return; }
+    if (!isAdmin) { setPersonalLoaded(true); return; }
+    const unsub = personalDocRef.onSnapshot(snap => {
+      const data = snap.data();
+      skipNextPersonalSave.current = true;
+      if (data && data.categories) setCategories(data.categories);
+      else setCategories(DEFAULT_CATEGORIES.map(n => ({ id: uid(), name: n, items: [] })));
+      if (data && data.budgets) setBudgets(data.budgets);
+      else setBudgets([]);
+      setPersonalLoaded(true);
+
+      // One-time migration: if old personal doc still has cities/corpQuotes and the
+      // shared doc hasn't been seeded yet, copy them over so nothing is lost.
+      if (!migratedRef.current && data && (data.cities || data.corpQuotes)) {
+        migratedRef.current = true;
+        sharedDocRef.get().then(sharedSnap => {
+          if (!sharedSnap.exists) {
+            sharedDocRef.set({ cities: data.cities || [], corpQuotes: data.corpQuotes || [] }, { merge: true });
+          }
+        });
+      }
+    }, err => {
+      console.error(err);
+      setSyncStatus("error");
+      setPersonalLoaded(true);
+    });
+    return unsub;
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (personalLoaded && sharedLoaded) { setLoaded(true); setSyncStatus("synced"); }
+  }, [personalLoaded, sharedLoaded]);
+
+  useEffect(() => {
+    if (!loaded || !isAdmin) return;
+    if (skipNextPersonalSave.current) { skipNextPersonalSave.current = false; return; }
     setSyncStatus("syncing");
-    docRef.set({ categories, budgets, cities, corpQuotes }, { merge: true })
+    personalDocRef.set({ categories, budgets }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [categories, budgets, cities, corpQuotes]);
+  }, [categories, budgets]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    if (skipNextSharedSave.current) { skipNextSharedSave.current = false; return; }
+    setSyncStatus("syncing");
+    sharedDocRef.set({ cities, corpQuotes }, { merge: true })
+      .then(() => setSyncStatus("synced"))
+      .catch(e => { console.error(e); setSyncStatus("error"); });
+  }, [cities, corpQuotes]);
 
   const openBudget = (id) => { setActiveBudgetId(id); setTab("builder"); };
   const createBudget = () => {
@@ -218,17 +265,17 @@ function MainApp({ user }) {
           </div>
         </div>
         <nav style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>
-          <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>
+          {isAdmin && <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>}
+          {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
           <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
           <TabBtn active={tab === "quotes" || tab === "quoteBuilder"} onClick={() => setTab("quotes")}>Corporate Quotes</TabBtn>
           <button className="beo-btn beo-btn-ghost" onClick={() => auth.signOut()}>Sign out</button>
         </nav>
       </div>
       <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
-        {tab === "inventory" && <InventoryView categories={categories} setCategories={setCategories} />}
-        {tab === "budgets" && <BudgetsListView budgets={budgets} setBudgets={setBudgets} onOpen={openBudget} onCreate={createBudget} />}
-        {tab === "builder" && activeBudgetId && (
+        {isAdmin && tab === "inventory" && <InventoryView categories={categories} setCategories={setCategories} />}
+        {isAdmin && tab === "budgets" && <BudgetsListView budgets={budgets} setBudgets={setBudgets} onOpen={openBudget} onCreate={createBudget} />}
+        {isAdmin && tab === "builder" && activeBudgetId && (
           <BudgetBuilder
             budget={budgets.find(b => b.id === activeBudgetId)}
             categories={categories}
