@@ -227,7 +227,7 @@ function MainApp({ user }) {
 
   const openBudget = (id) => { setActiveBudgetId(id); setTab("builder"); };
   const createBudget = () => {
-    const b = { id: uid(), name: "New Client Budget", clientName: "", date: new Date().toISOString().slice(0, 10), lines: [], profit: 0, commissionPercent: 0, commissionMode: "final", createdAt: Date.now() };
+    const b = { id: uid(), name: "New Client Budget", clientName: "", date: new Date().toISOString().slice(0, 10), lines: [], days: [], profit: 0, commissionPercent: 0, commissionMode: "final", createdAt: Date.now() };
     setBudgets(prev => [b, ...prev]);
     openBudget(b.id);
   };
@@ -401,7 +401,8 @@ function BudgetsListView({ budgets, setBudgets, onOpen, onCreate }) {
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
           {budgets.map(b => {
-            const base = (b.lines || []).reduce((s, l) => s + l.cost * l.qty, 0);
+            const base = (b.lines || []).reduce((s, l) => s + l.cost * l.qty, 0) +
+              (b.days || []).reduce((s, d) => s + d.events.reduce((s2, e) => s2 + e.lines.reduce((s3, l) => s3 + l.cost * l.qty, 0), 0), 0);
             return (
               <div key={b.id} className="beo-card" style={{ padding: 16, cursor: "pointer" }} onClick={() => onOpen(b.id)}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{b.name}</div>
@@ -422,18 +423,81 @@ function BudgetsListView({ budgets, setBudgets, onOpen, onCreate }) {
 
 function BudgetBuilder({ budget, categories, onBack, onChange }) {
   const [search, setSearch] = useState("");
+  const [activeDayId, setActiveDayId] = useState(null);
+  const [activeEventId, setActiveEventId] = useState(null);
+  const [newDayLabel, setNewDayLabel] = useState("");
+  const [newDayDate, setNewDayDate] = useState("");
+  const [newEventName, setNewEventName] = useState("");
+  const [newEventTime, setNewEventTime] = useState("");
+  const migratedRef = useRef(false);
+
   if (!budget) return null;
   const update = (patch) => onChange({ ...budget, ...patch });
+  const days = budget.days || [];
+
+  // One-time migration: old flat `lines` budgets become a single Day 1 / Event with those lines
+  useEffect(() => {
+    if (migratedRef.current) return;
+    migratedRef.current = true;
+    if ((!budget.days || budget.days.length === 0) && budget.lines && budget.lines.length > 0) {
+      const day = { id: uid(), date: budget.date || "", label: "Day 1", events: [{ id: uid(), name: "Event", time: "", lines: budget.lines }] };
+      update({ days: [day], lines: [] });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (days.length > 0 && (!activeDayId || !days.find(d => d.id === activeDayId))) setActiveDayId(days[0].id);
+  }, [days]);
+  const activeDay = days.find(d => d.id === activeDayId);
+  useEffect(() => {
+    if (activeDay && activeDay.events.length > 0 && (!activeEventId || !activeDay.events.find(e => e.id === activeEventId))) {
+      setActiveEventId(activeDay.events[0].id);
+    }
+    if (activeDay && activeDay.events.length === 0) setActiveEventId(null);
+  }, [activeDay]);
+  const activeEvent = activeDay && activeDay.events.find(e => e.id === activeEventId);
+
+  const updateDays = (newDays) => update({ days: newDays });
+
+  const addDay = () => {
+    if (!newDayLabel.trim()) return;
+    const day = { id: uid(), date: newDayDate, label: newDayLabel.trim(), events: [] };
+    updateDays([...days, day]);
+    setActiveDayId(day.id);
+    setNewDayLabel(""); setNewDayDate("");
+  };
+  const removeDay = (dayId) => {
+    updateDays(days.filter(d => d.id !== dayId));
+  };
+  const addEvent = () => {
+    if (!newEventName.trim() || !activeDay) return;
+    const ev = { id: uid(), name: newEventName.trim(), time: newEventTime.trim(), lines: [] };
+    updateDays(days.map(d => d.id === activeDay.id ? { ...d, events: [...d.events, ev] } : d));
+    setActiveEventId(ev.id);
+    setNewEventName(""); setNewEventTime("");
+  };
+  const removeEvent = (eventId) => {
+    updateDays(days.map(d => d.id === activeDay.id ? { ...d, events: d.events.filter(e => e.id !== eventId) } : d));
+  };
 
   const addLine = (catName, item) => {
-    const exists = budget.lines.find(l => l.itemRef === item.id);
-    if (exists) update({ lines: budget.lines.map(l => l.itemRef === item.id ? { ...l, qty: l.qty + 1 } : l) });
-    else update({ lines: [...budget.lines, { id: uid(), itemRef: item.id, category: catName, name: item.name, cost: item.cost, qty: 1 }] });
+    if (!activeEvent) return;
+    const exists = activeEvent.lines.find(l => l.itemRef === item.id);
+    const newLines = exists
+      ? activeEvent.lines.map(l => l.itemRef === item.id ? { ...l, qty: l.qty + 1 } : l)
+      : [...activeEvent.lines, { id: uid(), itemRef: item.id, category: catName, name: item.name, cost: item.cost, qty: 1 }];
+    updateDays(days.map(d => d.id === activeDay.id ? { ...d, events: d.events.map(e => e.id === activeEvent.id ? { ...e, lines: newLines } : e) } : d));
   };
-  const updateLine = (id, patch) => update({ lines: budget.lines.map(l => l.id === id ? { ...l, ...patch } : l) });
-  const removeLine = (id) => update({ lines: budget.lines.filter(l => l.id !== id) });
+  const updateLine = (id, patch) => {
+    const newLines = activeEvent.lines.map(l => l.id === id ? { ...l, ...patch } : l);
+    updateDays(days.map(d => d.id === activeDay.id ? { ...d, events: d.events.map(e => e.id === activeEvent.id ? { ...e, lines: newLines } : e) } : d));
+  };
+  const removeLine = (id) => {
+    const newLines = activeEvent.lines.filter(l => l.id !== id);
+    updateDays(days.map(d => d.id === activeDay.id ? { ...d, events: d.events.map(e => e.id === activeEvent.id ? { ...e, lines: newLines } : e) } : d));
+  };
 
-  const baseCost = budget.lines.reduce((s, l) => s + l.cost * l.qty, 0);
+  const baseCost = days.reduce((s, d) => s + d.events.reduce((s2, e) => s2 + e.lines.reduce((s3, l) => s3 + l.cost * l.qty, 0), 0), 0);
   const profit = Number(budget.profit) || 0;
   const commissionPct = Number(budget.commissionPercent) || 0;
   const mode = budget.commissionMode || "final";
@@ -448,19 +512,43 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
 
   const filteredCats = categories.map(c => ({ ...c, items: c.items.filter(i => i.name.toLowerCase().includes(search.toLowerCase())) })).filter(c => c.items.length > 0 || !search);
 
+  const DAY_COLORS = ["#6B1E23", "#8C5A2B", "#3E5C4A", "#4A5568", "#7A4A6B", "#2E5C6E"];
+
   const exportQuotation = () => {
     const printArea = document.getElementById("print-area");
-    const rows = budget.lines.map(l => `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">${l.name}</td><td style="padding:8px 0;border-bottom:1px solid #eee;text-align:right;">${l.qty}</td></tr>`).join("");
+    const companyName = budget.pdfCompanyName || "";
+    const dayBlocks = days.map((d, di) => {
+      const color = DAY_COLORS[di % DAY_COLORS.length];
+      const eventBlocks = d.events.map(ev => {
+        const rows = ev.lines.map(l => `<tr><td style="padding:6px 0;border-bottom:1px solid #f0ece0;font-family:Inter,sans-serif;font-size:12.5px;color:#333;">${l.name}</td><td style="padding:6px 0;border-bottom:1px solid #f0ece0;text-align:right;font-family:Inter,sans-serif;font-size:12.5px;color:#333;">${l.qty}</td></tr>`).join("");
+        const evTotal = ev.lines.reduce((s, l) => s + l.cost * l.qty, 0);
+        return `
+          <div style="margin:10px 0 16px 0;">
+            <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;color:${color};border-left:4px solid ${color};padding-left:10px;margin-bottom:6px;">
+              ${ev.name}${ev.time ? ` <span style="font-size:12px;font-weight:400;color:#8a8071;">— ${ev.time}</span>` : ""}
+            </div>
+            <table style="width:100%;border-collapse:collapse;">${rows || `<tr><td style="font-family:Inter,sans-serif;font-size:12px;color:#a39a89;padding:4px 0;">No items added</td></tr>`}</table>
+          </div>`;
+      }).join("");
+      return `
+        <div style="margin-bottom:22px;page-break-inside:avoid;">
+          <div style="background:linear-gradient(135deg, ${color}, ${color}dd); color:#FAF6EE; padding:10px 16px; border-radius:8px; font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:700; margin-bottom:10px;">
+            ✦ ${d.label}${d.date ? ` — ${d.date}` : ""}
+          </div>
+          ${eventBlocks || `<div style="font-family:Inter,sans-serif;font-size:12px;color:#a39a89;">No events added</div>`}
+        </div>`;
+    }).join("");
+
     printArea.innerHTML = `
-      <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#6B1E23;">The Executive Events</div>
-      <div style="font-family:Inter,sans-serif;font-size:13px;color:#8a8071;margin-bottom:20px;">Event Quotation</div>
-      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:6px;"><b>Client:</b> ${budget.clientName || "—"}</div>
-      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:20px;"><b>Date:</b> ${budget.date}</div>
-      <table style="width:100%;border-collapse:collapse;font-family:Inter,sans-serif;font-size:14px;margin-bottom:24px;">
-        <thead><tr><th style="text-align:left;border-bottom:2px solid #6B1E23;padding-bottom:8px;">Item / Service</th><th style="text-align:right;border-bottom:2px solid #6B1E23;padding-bottom:8px;">Qty</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div style="background:#6B1E23;color:#FAF6EE;padding:16px 20px;border-radius:8px;font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:700;">
+      <div style="text-align:center;margin-bottom:6px;">
+        <div style="font-family:'Cormorant Garamond',serif;font-size:15px;color:#B8934A;letter-spacing:2px;">${companyName ? companyName.toUpperCase() : "&nbsp;"}</div>
+        <div style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:700;color:#6B1E23;">${budget.name || "Event Quotation"}</div>
+        <div style="font-family:Inter,sans-serif;font-size:12.5px;color:#8a8071;">✦ ✦ ✦</div>
+      </div>
+      <div style="font-family:Inter,sans-serif;font-size:13.5px;margin-bottom:2px;text-align:center;"><b>Client:</b> ${budget.clientName || "—"}</div>
+      <div style="font-family:Inter,sans-serif;font-size:13.5px;margin-bottom:20px;text-align:center;"><b>Date:</b> ${budget.date}</div>
+      ${dayBlocks}
+      <div style="background:linear-gradient(135deg, #6B1E23, #8C5A2B); color:#FAF6EE; padding:18px 20px; border-radius:10px; font-family:'Cormorant Garamond',serif; font-size:26px; font-weight:700; text-align:center; margin-top:10px;">
         Total Budget: ${inr(finalBudget)}
       </div>
     `;
@@ -470,47 +558,98 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
   return (
     <div>
       <button className="beo-btn beo-btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>← Back to budgets</button>
-      <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
         <input className="beo-input" style={{ fontSize: 18, fontWeight: 600, flex: "1 1 220px" }} value={budget.name} onChange={e => update({ name: e.target.value })} />
         <input className="beo-input" placeholder="Client name" value={budget.clientName} onChange={e => update({ clientName: e.target.value })} style={{ width: 180 }} />
         <input className="beo-input" type="date" value={budget.date} onChange={e => update({ date: e.target.value })} style={{ width: 160 }} />
+      </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <input className="beo-input" placeholder="Company name for PDF (optional, blank if none)" value={budget.pdfCompanyName || ""} onChange={e => update({ pdfCompanyName: e.target.value })} style={{ flex: "1 1 260px" }} />
         <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
       </div>
-      <div className="builder-col">
-        <div>
-          <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
-            <input className="beo-input" placeholder="Search items across all folders…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
-            <div style={{ maxHeight: 320, overflowY: "auto" }}>
-              {filteredCats.map(c => (
-                <div key={c.id} style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", margin: "6px 0" }}>{c.name}</div>
-                  {c.items.map(item => (
-                    <div key={item.id} onClick={() => addLine(c.name, item)} style={{ display: "flex", justifyContent: "space-between", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 13.5 }}>
-                      <span>{item.name}</span><span style={{ color: "#8a8071" }}>{inr(item.cost)} ＋</span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-              {filteredCats.length === 0 && <div style={{ color: "#a39a89", fontSize: 13 }}>No items match.</div>}
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Days</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          {days.map((d, i) => (
+            <div key={d.id} onClick={() => setActiveDayId(d.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8, cursor: "pointer", background: activeDayId === d.id ? "#6B1E23" : "#F1EADA", color: activeDayId === d.id ? "#FAF6EE" : "#211D17" }}>
+              <span style={{ fontSize: 13.5, fontWeight: 600 }}>{d.label}{d.date ? ` (${d.date})` : ""}</span>
+              <span style={{ cursor: "pointer", opacity: 0.7 }} onClick={(e) => { e.stopPropagation(); removeDay(d.id); }}>×</span>
             </div>
-          </div>
-          <div className="beo-card" style={{ padding: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 10 }}>Selected items ({budget.lines.length})</div>
-            {budget.lines.length === 0 ? <div style={{ color: "#a39a89", fontSize: 13 }}>Click items on the left to add them.</div> : budget.lines.map(l => (
-              <div key={l.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 90px 24px", gap: 6, alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 13 }}>
-                <div>{l.name} <span style={{ color: "#a39a89", fontSize: 10.5 }}>({l.category})</span></div>
-                <input className="beo-input" type="number" min="1" value={l.qty} onChange={e => updateLine(l.id, { qty: Number(e.target.value) || 1 })} style={{ padding: "5px 6px" }} />
-                <input className="beo-input" type="number" value={l.cost} onChange={e => updateLine(l.id, { cost: Number(e.target.value) })} style={{ padding: "5px 6px" }} />
-                <div>{inr(l.cost * l.qty)}</div>
-                <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeLine(l.id)}>×</span>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <input className="beo-input" placeholder="Day label (e.g. Day 1)" value={newDayLabel} onChange={e => setNewDayLabel(e.target.value)} style={{ width: 160 }} />
+          <input className="beo-input" type="date" value={newDayDate} onChange={e => setNewDayDate(e.target.value)} style={{ width: 160 }} />
+          <button className="beo-btn beo-btn-primary" onClick={addDay}>＋ Add day</button>
+        </div>
+      </div>
+
+      {activeDay && (
+        <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Events in {activeDay.label}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            {activeDay.events.map(ev => (
+              <div key={ev.id} onClick={() => setActiveEventId(ev.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8, cursor: "pointer", background: activeEventId === ev.id ? "#B8934A" : "#F1EADA", color: activeEventId === ev.id ? "#FAF6EE" : "#211D17" }}>
+                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{ev.name}{ev.time ? ` — ${ev.time}` : ""}</span>
+                <span style={{ cursor: "pointer", opacity: 0.7 }} onClick={(e) => { e.stopPropagation(); removeEvent(ev.id); }}>×</span>
               </div>
             ))}
           </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <input className="beo-input" placeholder="Event name (e.g. Haldi)" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{ width: 180 }} />
+            <input className="beo-input" placeholder="Time (e.g. Morning)" value={newEventTime} onChange={e => setNewEventTime(e.target.value)} style={{ width: 140 }} />
+            <button className="beo-btn beo-btn-primary" onClick={addEvent}>＋ Add event</button>
+          </div>
+        </div>
+      )}
+
+      {days.length === 0 && (
+        <div className="beo-card" style={{ padding: 20, marginBottom: 16, color: "#a39a89" }}>Add a day above to start building the budget (e.g. "Day 1" — 18 Feb).</div>
+      )}
+
+      <div className="builder-col">
+        <div>
+          {activeEvent ? (
+            <React.Fragment>
+              <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 8 }}>Adding items to: <b style={{ color: "#6B1E23" }}>{activeDay.label} → {activeEvent.name}</b></div>
+                <input className="beo-input" placeholder="Search items across all folders…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
+                <div style={{ maxHeight: 320, overflowY: "auto" }}>
+                  {filteredCats.map(c => (
+                    <div key={c.id} style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", margin: "6px 0" }}>{c.name}</div>
+                      {c.items.map(item => (
+                        <div key={item.id} onClick={() => addLine(c.name, item)} style={{ display: "flex", justifyContent: "space-between", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 13.5 }}>
+                          <span>{item.name}</span><span style={{ color: "#8a8071" }}>{inr(item.cost)} ＋</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                  {filteredCats.length === 0 && <div style={{ color: "#a39a89", fontSize: 13 }}>No items match.</div>}
+                </div>
+              </div>
+              <div className="beo-card" style={{ padding: 16 }}>
+                <div style={{ fontWeight: 700, marginBottom: 10 }}>Selected items ({activeEvent.lines.length})</div>
+                {activeEvent.lines.length === 0 ? <div style={{ color: "#a39a89", fontSize: 13 }}>Click items above to add them to {activeEvent.name}.</div> : activeEvent.lines.map(l => (
+                  <div key={l.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 90px 24px", gap: 6, alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 13 }}>
+                    <div>{l.name} <span style={{ color: "#a39a89", fontSize: 10.5 }}>({l.category})</span></div>
+                    <input className="beo-input" type="number" min="1" value={l.qty} onChange={e => updateLine(l.id, { qty: Number(e.target.value) || 1 })} style={{ padding: "5px 6px" }} />
+                    <input className="beo-input" type="number" value={l.cost} onChange={e => updateLine(l.id, { cost: Number(e.target.value) })} style={{ padding: "5px 6px" }} />
+                    <div>{inr(l.cost * l.qty)}</div>
+                    <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeLine(l.id)}>×</span>
+                  </div>
+                ))}
+              </div>
+            </React.Fragment>
+          ) : (
+            <div className="beo-card" style={{ padding: 20, color: "#a39a89" }}>Add a day and an event above, then pick it to start adding items.</div>
+          )}
         </div>
         <div className="beo-card" style={{ padding: 20, alignSelf: "start" }}>
           <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 4 }}>Final Budget Calculator</div>
-          <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 16 }}>Commission on the final client budget by default.</div>
-          <Row label="Base cost (all items)" value={inr(baseCost)} />
+          <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 16 }}>Totals across all days & events. Commission on the final client budget by default.</div>
+          <Row label="Base cost (all items, all days)" value={inr(baseCost)} />
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Your desired profit (₹)</label>
             <input className="beo-input" type="number" value={budget.profit} onChange={e => update({ profit: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
