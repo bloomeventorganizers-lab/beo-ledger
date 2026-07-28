@@ -63,54 +63,118 @@
   window.__storage = firebase.storage();
 </script>
 <script>
-  window.downloadPdf = function (filename) {
-    const el = document.getElementById("print-area");
-    el.style.display = "block";
-    el.style.position = "absolute";
-    el.style.top = "0";
-    el.style.left = "0";
-    el.style.zIndex = "99999";
-    el.style.width = "760px";
-    el.style.background = "#fff";
-    el.style.padding = "30px";
-    el.style.boxSizing = "border-box";
-    const reset = () => {
-      el.style.display = "none";
-      el.style.position = "";
-      el.style.top = "";
-      el.style.left = "";
-      el.style.zIndex = "";
-      el.style.width = "";
-      el.style.boxSizing = "";
+  // Draws the PDF directly (text/shapes) instead of screenshotting the page.
+  // config: { companyName, title, client, date, sections:[{title,color:[r,g,b],subsections:[{title,items:[{name,qty}]}]}],
+  //           totalRows:[{label,value}], grandTotalLabel, grandTotal, filename }
+  window.generatePdf = function (config) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 15;
+    let y = 20;
+
+    const checkPageBreak = (needed) => {
+      if (y + needed > pageHeight - 15) { doc.addPage(); y = 20; }
     };
-    const opt = {
-      margin: 10,
-      filename: (filename || "quotation") + ".pdf",
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: el.scrollWidth,
-        windowHeight: el.scrollHeight
-      },
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+    const wrapText = (text, maxWidth, fontSize) => {
+      doc.setFontSize(fontSize);
+      return doc.splitTextToSize(String(text), maxWidth);
     };
-    // Delay lets the browser finish layout/paint (and web fonts load) before html2canvas snapshots it
-    setTimeout(() => {
-      html2pdf().set(opt).from(el).save().then(reset).catch((err) => {
-        console.error(err);
-        reset();
-        alert("PDF generation failed: " + err.message);
+
+    if (config.companyName) {
+      doc.setFont("times", "italic");
+      doc.setFontSize(11);
+      doc.setTextColor(184, 147, 74);
+      doc.text(config.companyName.toUpperCase(), pageWidth / 2, y, { align: "center" });
+      y += 8;
+    }
+    doc.setFont("times", "bold");
+    doc.setFontSize(22);
+    doc.setTextColor(107, 30, 35);
+    doc.text(config.title || "Event Quotation", pageWidth / 2, y, { align: "center" });
+    y += 9;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.setTextColor(60, 60, 60);
+    if (config.client) { doc.text(`Client: ${config.client}`, pageWidth / 2, y, { align: "center" }); y += 5.5; }
+    if (config.date) { doc.text(`Date: ${config.date}`, pageWidth / 2, y, { align: "center" }); y += 5.5; }
+    y += 4;
+
+    (config.sections || []).forEach(section => {
+      checkPageBreak(14);
+      const [r, g, b] = section.color || [107, 30, 35];
+      doc.setFillColor(r, g, b);
+      doc.roundedRect(margin, y, pageWidth - margin * 2, 9, 1.5, 1.5, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("times", "bold");
+      doc.setFontSize(12.5);
+      doc.text(section.title, margin + 4, y + 6.2);
+      y += 13;
+
+      (section.subsections || []).forEach(sub => {
+        checkPageBreak(11);
+        doc.setFont("times", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(r, g, b);
+        doc.text(sub.title, margin + 2, y);
+        y += 5.5;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9.5);
+        doc.setTextColor(40, 40, 40);
+        if (!sub.items || sub.items.length === 0) {
+          doc.setTextColor(150, 145, 135);
+          doc.text("No items added", margin + 4, y);
+          y += 5.5;
+        } else {
+          sub.items.forEach(item => {
+            checkPageBreak(6);
+            const lines = wrapText(item.name, pageWidth - margin * 2 - 24, 9.5);
+            doc.setTextColor(40, 40, 40);
+            doc.text(lines, margin + 4, y);
+            doc.text(String(item.qty), pageWidth - margin - 4, y, { align: "right" });
+            y += 5.2 * lines.length;
+            doc.setDrawColor(230, 225, 210);
+            doc.line(margin, y - 2, pageWidth - margin, y - 2);
+          });
+        }
+        y += 4;
       });
-    }, 300);
+    });
+
+    if (config.totalRows && config.totalRows.length) {
+      checkPageBreak(8 * config.totalRows.length + 6);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      config.totalRows.forEach(row => {
+        doc.setTextColor(row.color ? row.color[0] : 60, row.color ? row.color[1] : 60, row.color ? row.color[2] : 60);
+        doc.text(row.label, margin, y);
+        doc.text(row.value, pageWidth - margin, y, { align: "right" });
+        y += 6;
+      });
+      y += 2;
+    }
+
+    if (config.grandTotalLabel) {
+      checkPageBreak(20);
+      doc.setFillColor(107, 30, 35);
+      doc.roundedRect(margin, y, pageWidth - margin * 2, 16, 2, 2, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("times", "bold");
+      doc.setFontSize(13);
+      doc.text(config.grandTotalLabel, margin + 5, y + 6.5);
+      doc.setFontSize(17);
+      doc.text(config.grandTotal || "", pageWidth - margin - 5, y + 11.5, { align: "right" });
+    }
+
+    doc.save((config.filename || "quotation") + ".pdf");
   };
 </script>
 
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+<script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -852,62 +916,49 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
 
   const DAY_COLORS = ["#6B1E23", "#8C5A2B", "#3E5C4A", "#4A5568", "#7A4A6B", "#2E5C6E"];
 
+  const hexToRgb = (hex) => {
+    const m = hex.replace("#", "").match(/.{1,2}/g);
+    return m.map(h => parseInt(h, 16));
+  };
+
   const exportQuotation = () => {
-    const printArea = document.getElementById("print-area");
     const companyName = budget.pdfCompanyName || "";
-    const dayBlocks = days.map((d, di) => {
-      const color = DAY_COLORS[di % DAY_COLORS.length];
-      const eventBlocks = d.events.map(ev => {
-        const rows = ev.lines.map(l => `<tr><td style="padding:6px 0;border-bottom:1px solid #f0ece0;font-family:Inter,sans-serif;font-size:12.5px;color:#333;">${l.name}</td><td style="padding:6px 0;border-bottom:1px solid #f0ece0;text-align:right;font-family:Inter,sans-serif;font-size:12.5px;color:#333;">${l.qty}</td></tr>`).join("");
-        const evTotal = ev.lines.reduce((s, l) => s + l.cost * l.qty, 0);
-        return `
-          <div style="margin:10px 0 16px 0;">
-            <div style="font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:700;color:${color};border-left:4px solid ${color};padding-left:10px;margin-bottom:6px;">
-              ${ev.name}${ev.time ? ` <span style="font-size:12px;font-weight:400;color:#8a8071;">— ${ev.time}</span>` : ""}
-            </div>
-            <table style="width:100%;border-collapse:collapse;">${rows || `<tr><td style="font-family:Inter,sans-serif;font-size:12px;color:#a39a89;padding:4px 0;">No items added</td></tr>`}</table>
-          </div>`;
-      }).join("");
-      return `
-        <div style="margin-bottom:22px;page-break-inside:avoid;">
-          <div style="background:linear-gradient(135deg, ${color}, ${color}dd); color:#FAF6EE; padding:10px 16px; border-radius:8px; font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:700; margin-bottom:10px;">
-            ✦ ${d.label}${d.date ? ` — ${d.date}` : ""}
-          </div>
-          ${eventBlocks || `<div style="font-family:Inter,sans-serif;font-size:12px;color:#a39a89;">No events added</div>`}
-        </div>`;
-    }).join("");
+    const sections = days.map((d, di) => ({
+      title: `✦ ${d.label}${d.date ? ` — ${d.date}` : ""}`,
+      color: hexToRgb(DAY_COLORS[di % DAY_COLORS.length]),
+      subsections: d.events.map(ev => ({
+        title: `${ev.name}${ev.time ? ` — ${ev.time}` : ""}`,
+        items: ev.lines.map(l => ({ name: l.name, qty: l.qty }))
+      }))
+    }));
 
-    const expenseRows = otherExpenses.filter(x => x.label).map(x => `<tr><td style="padding:6px 0;border-bottom:1px solid #f0ece0;font-family:Inter,sans-serif;font-size:12.5px;color:#333;">${x.label}</td><td style="padding:6px 0;border-bottom:1px solid #f0ece0;text-align:right;font-family:Inter,sans-serif;font-size:12.5px;color:#333;">${inr(x.amount)}</td></tr>`).join("");
-    const expensesBlock = expenseRows ? `
-      <div style="margin-bottom:22px;">
-        <div style="background:linear-gradient(135deg, #4A5568, #4A5568dd); color:#FAF6EE; padding:10px 16px; border-radius:8px; font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:700; margin-bottom:10px;">
-          ✦ Other Charges
-        </div>
-        <table style="width:100%;border-collapse:collapse;">${expenseRows}</table>
-      </div>` : "";
+    if (otherExpenses.filter(x => x.label).length > 0) {
+      sections.push({
+        title: "✦ Other Charges",
+        color: [74, 85, 104],
+        subsections: [{ title: "", items: otherExpenses.filter(x => x.label).map(x => ({ name: x.label, qty: inr(x.amount) })) }]
+      });
+    }
 
-    printArea.innerHTML = `
-      <div style="text-align:center;margin-bottom:6px;">
-        <div style="font-family:'Cormorant Garamond',serif;font-size:15px;color:#B8934A;letter-spacing:2px;">${companyName ? companyName.toUpperCase() : "&nbsp;"}</div>
-        <div style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:700;color:#6B1E23;">${budget.name || "Event Quotation"}</div>
-        <div style="font-family:Inter,sans-serif;font-size:12.5px;color:#8a8071;">✦ ✦ ✦</div>
-      </div>
-      <div style="font-family:Inter,sans-serif;font-size:13.5px;margin-bottom:2px;text-align:center;"><b>Client:</b> ${budget.clientName || "—"}</div>
-      <div style="font-family:Inter,sans-serif;font-size:13.5px;margin-bottom:20px;text-align:center;"><b>Date:</b> ${budget.date}</div>
-      ${dayBlocks}
-      ${expensesBlock}
-      ${(discountAmount > 0 || gstPercent > 0) ? `
-      <div style="margin:14px 0;font-family:Inter,sans-serif;font-size:13px;color:#333;">
-        <div style="display:flex;justify-content:space-between;padding:4px 0;"><span>Subtotal</span><span>${(totalPct >= 100 && mode === "final") ? "—" : inr(finalBudget)}</span></div>
-        ${discountAmount > 0 ? `<div style="display:flex;justify-content:space-between;padding:4px 0;color:#B33A3A;"><span>Special Discount</span><span>−${inr(discountAmount)}</span></div>` : ""}
-        ${gstPercent > 0 ? `<div style="display:flex;justify-content:space-between;padding:4px 0;"><span>GST (${gstPercent}%)</span><span>${inr(gstAmount)}</span></div>` : ""}
-      </div>` : ""}
-      <div style="background:linear-gradient(135deg, #6B1E23, #8C5A2B); color:#FAF6EE; padding:18px 20px; border-radius:10px; font-family:'Cormorant Garamond',serif; font-size:26px; font-weight:700; text-align:center; margin-top:10px;">
-        Total Budget: ${(totalPct >= 100 && mode === "final") ? "—" : inr(grandTotal)}
-      </div>
-    `;
+    const totalRows = [];
+    if (discountAmount > 0 || gstPercent > 0) {
+      totalRows.push({ label: "Subtotal", value: (totalPct >= 100 && mode === "final") ? "—" : inr(finalBudget) });
+      if (discountAmount > 0) totalRows.push({ label: "Special Discount", value: "−" + inr(discountAmount), color: [179, 58, 58] });
+      if (gstPercent > 0) totalRows.push({ label: `GST (${gstPercent}%)`, value: inr(gstAmount) });
+    }
+
     update({ quoteSentAt: Date.now() });
-    window.downloadPdf((budget.clientName || budget.name || "quotation").replace(/[^a-z0-9]/gi, "_"));
+    window.generatePdf({
+      companyName,
+      title: budget.name || "Event Quotation",
+      client: budget.clientName || "—",
+      date: budget.date,
+      sections,
+      totalRows,
+      grandTotalLabel: "Total Budget",
+      grandTotal: (totalPct >= 100 && mode === "final") ? "—" : inr(grandTotal),
+      filename: (budget.clientName || budget.name || "quotation").replace(/[^a-z0-9]/gi, "_")
+    });
   };
 
   return (
@@ -1575,21 +1626,29 @@ function HotelDetail({ city, hotel, cities, quotes, onOpenQuote, onBack, onChang
   };
 
   const exportProfile = () => {
-    const printArea = document.getElementById("print-area");
-    const docRows = documents.map(d => `<div style="margin-bottom:4px;">📄 ${d.label}: ${d.url}</div>`).join("");
-    const noteRows = notes.map(n => `<div style="margin-bottom:4px;"><b>${n.date}:</b> ${n.text}</div>`).join("");
-    printArea.innerHTML = `
-      <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#6B1E23;">${hotel.name}</div>
-      <div style="font-family:Inter,sans-serif;font-size:13px;color:#8a8071;margin-bottom:16px;">${hotel.brand || ""} ${city ? "· " + city.name : ""}</div>
-      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:16px;white-space:pre-wrap;">${hotel.description || ""}</div>
-      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:10px;"><b>Sales Manager:</b> ${hotel.salesManager?.name || "—"} ${hotel.salesManager?.phone ? "— " + hotel.salesManager.phone : ""}</div>
-      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:16px;"><b>Alternate Contact:</b> ${hotel.altContact?.name || "—"} ${hotel.altContact?.phone ? "— " + hotel.altContact.phone : ""}</div>
-      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:6px;"><b>Documents</b></div>
-      ${docRows || "<div>None added</div>"}
-      <div style="font-family:Inter,sans-serif;font-size:14px;margin:16px 0 6px;"><b>Notes</b></div>
-      ${noteRows || "<div>None added</div>"}
-    `;
-    window.downloadPdf(hotel.name.replace(/[^a-z0-9]/gi, "_"));
+    const items = [];
+    items.push({ name: `Sales Manager: ${hotel.salesManager?.name || "—"}${hotel.salesManager?.phone ? " — " + hotel.salesManager.phone : ""}`, qty: "" });
+    items.push({ name: `Alternate Contact: ${hotel.altContact?.name || "—"}${hotel.altContact?.phone ? " — " + hotel.altContact.phone : ""}`, qty: "" });
+    (extraContacts || []).forEach(c => items.push({ name: `${c.position || "Contact"}: ${c.name || "—"}${c.phone ? " — " + c.phone : ""}`, qty: "" }));
+
+    const docItems = documents.length ? documents.map(d => ({ name: `${d.label}: ${d.url}`, qty: "" })) : [{ name: "None added", qty: "" }];
+    const noteItems = notes.length ? notes.map(n => ({ name: `${n.date}: ${n.text}`, qty: "" })) : [{ name: "None added", qty: "" }];
+
+    window.generatePdf({
+      title: hotel.name,
+      client: "",
+      date: `${hotel.brand || ""}${city ? " · " + city.name : ""}`,
+      sections: [
+        { title: "Description", color: [107, 30, 35], subsections: [{ title: "", items: [{ name: hotel.description || "No description added", qty: "" }] }] },
+        { title: "Contacts", color: [140, 90, 43], subsections: [{ title: "", items }] },
+        { title: "Documents", color: [62, 92, 74], subsections: [{ title: "", items: docItems }] },
+        { title: "Notes", color: [74, 85, 104], subsections: [{ title: "", items: noteItems }] }
+      ],
+      totalRows: [],
+      grandTotalLabel: "",
+      grandTotal: "",
+      filename: hotel.name.replace(/[^a-z0-9]/gi, "_")
+    });
   };
 
   return (
@@ -1861,27 +1920,21 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
   const cur = (n) => fmtCurrency(n, currency);
 
   const exportQuotation = () => {
-    const printArea = document.getElementById("print-area");
-    const lineRows = [
-      rooms.qty ? `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">Rooms (${rooms.qty} rooms × ${rooms.nights} night${rooms.nights == 1 ? "" : "s"})</td><td></td></tr>` : "",
-      banquet.rate ? `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">Banquet${banquet.mode === "perPax" ? ` (${banquet.pax} pax)` : ""}</td><td></td></tr>` : "",
-      ...extraLines.filter(l => l.label).map(l => `<tr><td style="padding:8px 0;border-bottom:1px solid #eee;">${l.label}</td><td style="padding:8px 0;border-bottom:1px solid #eee;text-align:right;">${l.qty}</td></tr>`)
-    ].filter(Boolean).join("");
-    printArea.innerHTML = `
-      <div style="font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#6B1E23;">The Executive Events</div>
-      <div style="font-family:Inter,sans-serif;font-size:13px;color:#8a8071;margin-bottom:20px;">Corporate Event Quotation</div>
-      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:4px;"><b>Client:</b> ${quote.clientName || "—"}</div>
-      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:4px;"><b>Venue:</b> ${hotel ? hotel.name : "—"}${city ? " · " + city.name : ""}</div>
-      <div style="font-family:Inter,sans-serif;font-size:14px;margin-bottom:20px;"><b>Date:</b> ${quote.date}</div>
-      <table style="width:100%;border-collapse:collapse;font-family:Inter,sans-serif;font-size:14px;margin-bottom:24px;">
-        <thead><tr><th style="text-align:left;border-bottom:2px solid #6B1E23;padding-bottom:8px;">Item / Service</th><th style="text-align:right;border-bottom:2px solid #6B1E23;padding-bottom:8px;">Qty</th></tr></thead>
-        <tbody>${lineRows}</tbody>
-      </table>
-      <div style="background:#6B1E23;color:#FAF6EE;padding:16px 20px;border-radius:8px;font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:700;">
-        Total Budget: ${cur(finalBudget)}
-      </div>
-    `;
-    window.downloadPdf((quote.clientName || quote.name || "quotation").replace(/[^a-z0-9]/gi, "_"));
+    const items = [];
+    if (rooms.qty) items.push({ name: `Rooms (${rooms.qty} rooms × ${rooms.nights} night${rooms.nights == 1 ? "" : "s"})`, qty: "" });
+    if (banquet.rate) items.push({ name: `Banquet${banquet.mode === "perPax" ? ` (${banquet.pax} pax)` : ""}`, qty: "" });
+    extraLines.filter(l => l.label).forEach(l => items.push({ name: l.label, qty: l.qty }));
+
+    window.generatePdf({
+      title: "The Executive Events",
+      client: quote.clientName || "—",
+      date: `${quote.date}${hotel ? "  ·  Venue: " + hotel.name + (city ? " · " + city.name : "") : ""}`,
+      sections: [{ title: "Corporate Event Quotation", color: [107, 30, 35], subsections: [{ title: "", items }] }],
+      totalRows: [],
+      grandTotalLabel: "Total Budget",
+      grandTotal: cur(finalBudget),
+      filename: (quote.clientName || quote.name || "quotation").replace(/[^a-z0-9]/gi, "_")
+    });
   };
 
   return (
