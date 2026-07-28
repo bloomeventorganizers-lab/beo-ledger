@@ -111,6 +111,7 @@
 
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
@@ -159,6 +160,11 @@ const statusColor = (status) => ({
   "Dead lead": { bg: "#F5DCDC", fg: "#B33A3A" },
 }[status] || { bg: "#F1EADA", fg: "#8a8071" });
 const waLink = (phone) => "https://wa.me/" + String(phone || "").replace(/[^0-9]/g, "");
+const waLinkWithText = (phone, text) => {
+  const digits = String(phone || "").replace(/[^0-9]/g, "");
+  const base = digits ? `https://wa.me/${digits}` : "https://wa.me/";
+  return `${base}?text=${encodeURIComponent(text || "")}`;
+};
 const photoUrlOf = (p) => (p && typeof p === "object" ? p.url : p);
 
 function App() {
@@ -212,6 +218,7 @@ function MainApp({ user }) {
   const [categories, setCategories] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [recentItems, setRecentItems] = useState([]);
+  const [bundles, setBundles] = useState([]);
   const [cities, setCities] = useState([]);
   const [corpQuotes, setCorpQuotes] = useState([]);
   const [tab, setTab] = useState(isAdmin ? "dashboard" : "hotels");
@@ -258,6 +265,8 @@ function MainApp({ user }) {
       else setBudgets([]);
       if (data && data.recentItems) setRecentItems(data.recentItems);
       else setRecentItems([]);
+      if (data && data.bundles) setBundles(data.bundles);
+      else setBundles([]);
       setPersonalLoaded(true);
 
       // One-time migration: if old personal doc still has cities/corpQuotes and the
@@ -286,10 +295,10 @@ function MainApp({ user }) {
     if (!loaded || !isAdmin) return;
     if (skipNextPersonalSave.current) { skipNextPersonalSave.current = false; return; }
     setSyncStatus("syncing");
-    personalDocRef.set({ categories, budgets, recentItems }, { merge: true })
+    personalDocRef.set({ categories, budgets, recentItems, bundles }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [categories, budgets, recentItems]);
+  }, [categories, budgets, recentItems, bundles]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -446,7 +455,7 @@ function MainApp({ user }) {
       )}
       <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
         {isAdmin && tab === "dashboard" && <DashboardView budgets={budgets} onOpen={openBudget} />}
-        {isAdmin && tab === "inventory" && <InventoryView categories={categories} setCategories={setCategories} />}
+        {isAdmin && tab === "inventory" && <InventoryView categories={categories} setCategories={setCategories} bundles={bundles} setBundles={setBundles} />}
         {isAdmin && tab === "budgets" && <BudgetsListView budgets={budgets} setBudgets={setBudgets} onOpen={openBudget} onCreate={createBudget} />}
         {isAdmin && tab === "builder" && activeBudgetId && (
           <BudgetBuilder
@@ -454,6 +463,7 @@ function MainApp({ user }) {
             categories={categories}
             recentItems={recentItems}
             setRecentItems={setRecentItems}
+            bundles={bundles}
             onBack={() => setTab("budgets")}
             onChange={(updated) => setBudgets(prev => prev.map(b => b.id === updated.id ? updated : b))}
           />
@@ -496,12 +506,28 @@ function TabBtn({ active, onClick, children }) {
   );
 }
 
-function InventoryView({ categories, setCategories }) {
+function InventoryView({ categories, setCategories, bundles, setBundles }) {
   const [openCat, setOpenCat] = useState(categories[0]?.id || null);
   const [newCatName, setNewCatName] = useState("");
   const [itemDraft, setItemDraft] = useState({});
+  const [selectedForBundle, setSelectedForBundle] = useState([]);
+  const [bundleName, setBundleName] = useState("");
 
   useEffect(() => { if ((!openCat || !categories.find(c => c.id === openCat)) && categories[0]) setOpenCat(categories[0].id); }, [categories]);
+
+  const toggleBundleItem = (catName, item) => {
+    setSelectedForBundle(prev => {
+      const exists = prev.find(x => x.itemRef === item.id);
+      if (exists) return prev.filter(x => x.itemRef !== item.id);
+      return [...prev, { itemRef: item.id, name: item.name, cost: item.cost, category: catName }];
+    });
+  };
+  const createBundle = () => {
+    if (!bundleName.trim() || selectedForBundle.length === 0 || !setBundles) return;
+    setBundles(prev => [...(prev || []), { id: uid(), name: bundleName.trim(), items: selectedForBundle }]);
+    setBundleName(""); setSelectedForBundle([]);
+  };
+  const removeBundle = (id) => setBundles(prev => (prev || []).filter(b => b.id !== id));
 
   const addCategory = () => {
     if (!newCatName.trim()) return;
@@ -521,6 +547,7 @@ function InventoryView({ categories, setCategories }) {
   const updateItem = (catId, itemId, patch) => setCategories(prev => prev.map(c => c.id === catId ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, ...patch } : i) } : c));
 
   return (
+    <React.Fragment>
     <div className="two-col">
       <div className="beo-card" style={{ padding: 14 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 10 }}>Folders</div>
@@ -544,7 +571,8 @@ function InventoryView({ categories, setCategories }) {
               <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>{cat.name}</div>
               {cat.items.length === 0 && <div style={{ color: "#a39a89", fontSize: 14, marginBottom: 10 }}>No items yet.</div>}
               {cat.items.map(item => (
-                <div key={item.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 30px", gap: 8, alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA" }}>
+                <div key={item.id} style={{ display: "grid", gridTemplateColumns: "24px 1fr 120px 30px", gap: 8, alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA" }}>
+                  <input type="checkbox" checked={!!selectedForBundle.find(x => x.itemRef === item.id)} onChange={() => toggleBundleItem(cat.name, item)} title="Select for bundle" />
                   <input className="beo-input" value={item.name} onChange={e => updateItem(cat.id, item.id, { name: e.target.value })} />
                   <input className="beo-input" type="number" value={item.cost} onChange={e => updateItem(cat.id, item.id, { cost: Number(e.target.value) })} />
                   <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeItem(cat.id, item.id)}>🗑</span>
@@ -560,6 +588,35 @@ function InventoryView({ categories, setCategories }) {
         })()}
       </div>
     </div>
+
+    <div className="beo-card" style={{ padding: 20, marginTop: 16 }}>
+      <div style={{ fontWeight: 700, marginBottom: 4 }}>Bundles</div>
+      <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 14 }}>Check items above (any folder) to group them into a reusable bundle — one click adds all of them to a budget event.</div>
+
+      {selectedForBundle.length > 0 && (
+        <div style={{ background: "#FAF6EE", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>{selectedForBundle.length} item(s) selected: {selectedForBundle.map(x => x.name).join(", ")}</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input className="beo-input" placeholder="Bundle name (e.g. Fog Package)" value={bundleName} onChange={e => setBundleName(e.target.value)} />
+            <button className="beo-btn beo-btn-primary" onClick={createBundle}>＋ Create Bundle</button>
+            <button className="beo-btn beo-btn-ghost" onClick={() => setSelectedForBundle([])}>Clear</button>
+          </div>
+        </div>
+      )}
+
+      {(bundles || []).length === 0 ? (
+        <div style={{ color: "#a39a89", fontSize: 13 }}>No bundles yet.</div>
+      ) : (bundles || []).map(b => (
+        <div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 4px", borderTop: "1px solid #F1EADA" }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{b.name}</div>
+            <div style={{ fontSize: 11.5, color: "#8a8071" }}>{b.items.map(i => i.name).join(", ")}</div>
+          </div>
+          <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeBundle(b.id)}>🗑</span>
+        </div>
+      ))}
+    </div>
+    </React.Fragment>
   );
 }
 
@@ -658,7 +715,7 @@ function BudgetsListView({ budgets, setBudgets, onOpen, onCreate }) {
   );
 }
 
-function BudgetBuilder({ budget, categories, recentItems, setRecentItems, onBack, onChange }) {
+function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundles, onBack, onChange }) {
   const [search, setSearch] = useState("");
   const [activeDayId, setActiveDayId] = useState(null);
   const [activeEventId, setActiveEventId] = useState(null);
@@ -731,6 +788,9 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, onBack
         return [{ id: item.id, name: item.name, cost: item.cost, category: catName }, ...withoutDupe].slice(0, 10);
       });
     }
+  };
+  const addBundle = (bundle) => {
+    bundle.items.forEach(bi => addLine(bi.category, { id: bi.itemRef, name: bi.name, cost: bi.cost }));
   };
   const updateLine = (id, patch) => {
     const newLines = activeEvent.lines.map(l => l.id === id ? { ...l, ...patch } : l);
@@ -861,7 +921,15 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, onBack
       <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
         <input className="beo-input" placeholder="Company name for PDF (optional, blank if none)" value={budget.pdfCompanyName || ""} onChange={e => update({ pdfCompanyName: e.target.value })} style={{ flex: "1 1 260px" }} />
         <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
+        <a
+          href={waLinkWithText(budget.clientPhone, `Hi ${budget.clientName || ""}, please find your event quotation attached. Total: ${(totalPct >= 100 && mode === "final") ? "" : inr(grandTotal)}. Let us know if you have any questions!\n\n— ${budget.pdfCompanyName || "The Executive Events"}`)}
+          target="_blank" rel="noreferrer"
+          className="beo-btn"
+          style={{ background: "#25D366", color: "#fff", padding: "9px 16px", fontSize: 14, fontWeight: 600, textDecoration: "none" }}
+          title="Opens WhatsApp with a ready message — attach the downloaded PDF manually"
+        >💬 Send via WhatsApp</a>
       </div>
+      <div style={{ fontSize: 11, color: "#a39a89", marginTop: -12, marginBottom: 16 }}>Tip: export the PDF first, then use "Send via WhatsApp" and attach the downloaded file manually — WhatsApp links can't auto-attach files.</div>
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Client Info</div>
@@ -979,6 +1047,16 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, onBack
             <React.Fragment>
               <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 8 }}>Adding items to: <b style={{ color: "#6B1E23" }}>{activeDay.label} → {activeEvent.name}</b></div>
+                {bundles && bundles.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 6 }}>Bundles</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {bundles.map(b => (
+                        <span key={b.id} onClick={() => addBundle(b)} title={b.items.map(i => i.name).join(", ")} style={{ padding: "5px 10px", borderRadius: 14, background: "#EADFC2", fontSize: 12, cursor: "pointer", fontWeight: 600, color: "#6B1E23" }}>📦 {b.name}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {recentItems && recentItems.length > 0 && (
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 6 }}>Recently Used</div>
@@ -1173,6 +1251,53 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
   };
   const removeHotel = (cityId, hotelId) => setCities(prev => prev.map(c => c.id === cityId ? { ...c, hotels: c.hotels.filter(h => h.id !== hotelId) } : c));
 
+  const csvFileInputRef = useRef(null);
+  const importCsv = (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    window.Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        let added = 0, skipped = 0;
+        let nextCities = cities.map(c => ({ ...c, hotels: [...c.hotels] }));
+        results.data.forEach(row => {
+          const get = (...keys) => {
+            for (const k of keys) {
+              const found = Object.keys(row).find(rk => rk.trim().toLowerCase() === k.toLowerCase());
+              if (found && row[found]) return row[found].trim();
+            }
+            return "";
+          };
+          const cityName = get("City/Area", "City", "Area");
+          const hotelName = get("Hotel", "Hotel Name");
+          if (!cityName || !hotelName) { skipped++; return; }
+          const region = get("Region");
+          const country = get("Country") || "India";
+          let city = nextCities.find(c => c.name.toLowerCase() === cityName.toLowerCase());
+          if (!city) {
+            city = { id: uid(), name: cityName, region, country, hotels: [] };
+            nextCities.push(city);
+          }
+          const dupe = city.hotels.find(h => h.name.toLowerCase() === hotelName.toLowerCase());
+          if (dupe) { skipped++; return; }
+          city.hotels.push({
+            id: uid(), name: hotelName, brand: get("Brand"), description: get("Description"), mapUrl: "",
+            photos: [], documents: [],
+            salesManager: { name: get("Sales Manager", "SalesManagerName"), phone: get("Sales Phone", "SalesManagerPhone") },
+            altContact: { name: get("Alt Contact", "AltContactName"), phone: get("Alt Phone", "AltContactPhone") },
+            extraContacts: [], status: "Not contacted", lastContactedDate: "", notes: []
+          });
+          added++;
+        });
+        setCities(nextCities);
+        alert(`Import complete: ${added} hotel(s) added, ${skipped} skipped (duplicates or missing city/hotel name).`);
+      },
+      error: (err) => alert("CSV parse error: " + err.message)
+    });
+  };
+
   const exportCsv = () => {
     const rows = [["Country", "Region", "City/Area", "Hotel", "Brand", "Status", "Last Contacted", "Sales Manager", "Sales Phone", "Alt Contact", "Alt Phone", "Description"]];
     cities.forEach(c => {
@@ -1229,7 +1354,12 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
         {filtersActive && (
           <button className="beo-btn beo-btn-ghost" onClick={() => { setSearch(""); setCountryFilter("All"); setRegionFilter("All"); setBrandFilter("All"); }}>Clear filters</button>
         )}
-        <button className="beo-btn beo-btn-gold" style={{ marginLeft: "auto" }} onClick={exportCsv}>⬇ Export CSV</button>
+        <button className="beo-btn beo-btn-gold" style={{ marginLeft: "auto" }} onClick={() => csvFileInputRef.current && csvFileInputRef.current.click()}>⬆ Import CSV</button>
+        <input ref={csvFileInputRef} type="file" accept=".csv" onChange={importCsv} style={{ display: "none" }} />
+        <button className="beo-btn beo-btn-gold" onClick={exportCsv}>⬇ Export CSV</button>
+      </div>
+      <div style={{ fontSize: 11, color: "#a39a89", marginBottom: 16, marginTop: -8 }}>
+        CSV import expects columns: City/Area, Region, Country, Hotel, Brand, Description, Sales Manager, Sales Phone, Alt Contact, Alt Phone (matches the Export CSV format — export once to see the exact template).
       </div>
 
       {filtersActive ? (
@@ -1757,15 +1887,27 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
   return (
     <div>
       <button className="beo-btn beo-btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>← Back to corporate quotes</button>
-      <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
         <input className="beo-input" style={{ fontSize: 18, fontWeight: 600, flex: "1 1 220px" }} value={quote.name} onChange={e => update({ name: e.target.value })} />
         <input className="beo-input" placeholder="Client name" value={quote.clientName} onChange={e => update({ clientName: e.target.value })} style={{ width: 180 }} />
+        <input className="beo-input" placeholder="Client phone" value={quote.clientPhone || ""} onChange={e => update({ clientPhone: e.target.value })} style={{ width: 160 }} />
         <input className="beo-input" type="date" value={quote.date} onChange={e => update({ date: e.target.value })} style={{ width: 160 }} />
         <select className="beo-input" style={{ width: 90 }} value={currency} onChange={e => update({ currency: e.target.value })}>
           {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
-        <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
       </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
+        <a
+          href={waLinkWithText(quote.clientPhone, `Hi ${quote.clientName || ""}, please find your corporate event quotation attached. Total: ${(commissionPct >= 100 && mode === "final") ? "" : cur(finalBudget)}. Let us know if you have any questions!\n\n— The Executive Events`)}
+          target="_blank" rel="noreferrer"
+          className="beo-btn"
+          style={{ background: "#25D366", color: "#fff", padding: "9px 16px", fontSize: 14, fontWeight: 600, textDecoration: "none" }}
+          title="Opens WhatsApp with a ready message — attach the downloaded PDF manually"
+        >💬 Send via WhatsApp</a>
+      </div>
+      <div style={{ fontSize: 11, color: "#a39a89", marginTop: -12, marginBottom: 16 }}>Tip: export the PDF first, then use "Send via WhatsApp" and attach the downloaded file manually.</div>
+
 
       <div className="builder-col">
         <div>
