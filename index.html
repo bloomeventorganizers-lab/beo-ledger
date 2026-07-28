@@ -211,6 +211,7 @@ function MainApp({ user }) {
   const [loaded, setLoaded] = useState(false);
   const [categories, setCategories] = useState([]);
   const [budgets, setBudgets] = useState([]);
+  const [recentItems, setRecentItems] = useState([]);
   const [cities, setCities] = useState([]);
   const [corpQuotes, setCorpQuotes] = useState([]);
   const [tab, setTab] = useState(isAdmin ? "dashboard" : "hotels");
@@ -255,6 +256,8 @@ function MainApp({ user }) {
       else setCategories(DEFAULT_CATEGORIES.map(n => ({ id: uid(), name: n, items: [] })));
       if (data && data.budgets) setBudgets(data.budgets);
       else setBudgets([]);
+      if (data && data.recentItems) setRecentItems(data.recentItems);
+      else setRecentItems([]);
       setPersonalLoaded(true);
 
       // One-time migration: if old personal doc still has cities/corpQuotes and the
@@ -283,10 +286,10 @@ function MainApp({ user }) {
     if (!loaded || !isAdmin) return;
     if (skipNextPersonalSave.current) { skipNextPersonalSave.current = false; return; }
     setSyncStatus("syncing");
-    personalDocRef.set({ categories, budgets }, { merge: true })
+    personalDocRef.set({ categories, budgets, recentItems }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [categories, budgets]);
+  }, [categories, budgets, recentItems]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -324,6 +327,41 @@ function MainApp({ user }) {
     openQuote(q.id);
   };
 
+  const fileInputRef = useRef(null);
+  const [globalSearch, setGlobalSearch] = useState("");
+
+  const handleBackup = () => {
+    const backup = { categories, budgets, recentItems, cities, corpQuotes, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `beo_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleRestoreFile = (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (!window.confirm("This will REPLACE your current data with the backup file. Continue?")) return;
+        if (data.categories) setCategories(data.categories);
+        if (data.budgets) setBudgets(data.budgets);
+        if (data.recentItems) setRecentItems(data.recentItems);
+        if (data.cities) setCities(data.cities);
+        if (data.corpQuotes) setCorpQuotes(data.corpQuotes);
+        alert("Backup restored successfully.");
+      } catch (err) {
+        alert("Could not read this file — make sure it's a valid backup JSON exported from this app.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   if (!loaded) return <div style={{ padding: 40, color: "#6b1e23" }}>Loading your workspace…</div>;
 
   const activeHotel = (() => {
@@ -341,15 +379,71 @@ function MainApp({ user }) {
             {syncStatus === "syncing" ? "Syncing…" : syncStatus === "error" ? "Sync error — check connection" : `Synced · ${user.email}`}
           </div>
         </div>
-        <nav style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <nav style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           {isAdmin && <TabBtn active={tab === "dashboard"} onClick={() => setTab("dashboard")}>Dashboard</TabBtn>}
           {isAdmin && <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>}
           {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
           <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
           <TabBtn active={tab === "quotes" || tab === "quoteBuilder"} onClick={() => setTab("quotes")}>Corporate Quotes</TabBtn>
+          {isAdmin && (
+            <React.Fragment>
+              <button className="beo-btn beo-btn-ghost" onClick={handleBackup} title="Download a full backup JSON file">⬇ Backup</button>
+              <button className="beo-btn beo-btn-ghost" onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Restore from a backup JSON file">⬆ Restore</button>
+              <input ref={fileInputRef} type="file" accept="application/json" onChange={handleRestoreFile} style={{ display: "none" }} />
+            </React.Fragment>
+          )}
           <button className="beo-btn beo-btn-ghost" onClick={() => auth.signOut()}>Sign out</button>
         </nav>
       </div>
+      {isAdmin && (
+        <div style={{ borderBottom: "1px solid #EDE6D6", background: "#fff", padding: "10px 20px" }}>
+          <div style={{ maxWidth: 1200, margin: "0 auto", position: "relative" }}>
+            <input
+              className="beo-input"
+              placeholder="🔍 Search across Hotels, Client Budgets & Corporate Quotes…"
+              value={globalSearch}
+              onChange={e => setGlobalSearch(e.target.value)}
+              style={{ fontSize: 13.5 }}
+            />
+            {globalSearch.trim() && (() => {
+              const q = globalSearch.trim().toLowerCase();
+              const matchedBudgets = budgets.filter(b => (b.name || "").toLowerCase().includes(q) || (b.clientName || "").toLowerCase().includes(q)).slice(0, 5);
+              const matchedHotels = cities.flatMap(c => c.hotels.filter(h => h.name.toLowerCase().includes(q)).map(h => ({ h, cityId: c.id }))).slice(0, 5);
+              const matchedQuotes = corpQuotes.filter(qt => (qt.name || "").toLowerCase().includes(q) || (qt.clientName || "").toLowerCase().includes(q)).slice(0, 5);
+              const noResults = matchedBudgets.length === 0 && matchedHotels.length === 0 && matchedQuotes.length === 0;
+              return (
+                <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #EDE6D6", borderRadius: 8, marginTop: 4, boxShadow: "0 6px 20px rgba(0,0,0,0.08)", zIndex: 50, maxHeight: 360, overflowY: "auto" }}>
+                  {noResults && <div style={{ padding: 14, color: "#a39a89", fontSize: 13 }}>No matches found.</div>}
+                  {matchedBudgets.length > 0 && (
+                    <div>
+                      <div style={{ padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase" }}>Client Budgets</div>
+                      {matchedBudgets.map(b => (
+                        <div key={b.id} onClick={() => { openBudget(b.id); setGlobalSearch(""); }} style={{ padding: "8px 14px", cursor: "pointer", fontSize: 13.5 }}>{b.name} <span style={{ color: "#8a8071", fontSize: 12 }}>({b.clientName || "no client"})</span></div>
+                      ))}
+                    </div>
+                  )}
+                  {matchedHotels.length > 0 && (
+                    <div>
+                      <div style={{ padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase" }}>Hotels</div>
+                      {matchedHotels.map(({ h, cityId }) => (
+                        <div key={h.id} onClick={() => { openHotel(cityId, h.id); setGlobalSearch(""); }} style={{ padding: "8px 14px", cursor: "pointer", fontSize: 13.5 }}>{h.name}</div>
+                      ))}
+                    </div>
+                  )}
+                  {matchedQuotes.length > 0 && (
+                    <div>
+                      <div style={{ padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase" }}>Corporate Quotes</div>
+                      {matchedQuotes.map(qt => (
+                        <div key={qt.id} onClick={() => { openQuote(qt.id); setGlobalSearch(""); }} style={{ padding: "8px 14px", cursor: "pointer", fontSize: 13.5 }}>{qt.name} <span style={{ color: "#8a8071", fontSize: 12 }}>({qt.clientName || "no client"})</span></div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
       <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
         {isAdmin && tab === "dashboard" && <DashboardView budgets={budgets} onOpen={openBudget} />}
         {isAdmin && tab === "inventory" && <InventoryView categories={categories} setCategories={setCategories} />}
@@ -358,6 +452,8 @@ function MainApp({ user }) {
           <BudgetBuilder
             budget={budgets.find(b => b.id === activeBudgetId)}
             categories={categories}
+            recentItems={recentItems}
+            setRecentItems={setRecentItems}
             onBack={() => setTab("budgets")}
             onChange={(updated) => setBudgets(prev => prev.map(b => b.id === updated.id ? updated : b))}
           />
@@ -369,6 +465,7 @@ function MainApp({ user }) {
           <HotelDetail
             city={cities.find(c => c.id === activeCityId)}
             hotel={activeHotel}
+            cities={cities}
             quotes={corpQuotes}
             onOpenQuote={openQuote}
             onBack={() => setTab("hotels")}
@@ -561,7 +658,7 @@ function BudgetsListView({ budgets, setBudgets, onOpen, onCreate }) {
   );
 }
 
-function BudgetBuilder({ budget, categories, onBack, onChange }) {
+function BudgetBuilder({ budget, categories, recentItems, setRecentItems, onBack, onChange }) {
   const [search, setSearch] = useState("");
   const [activeDayId, setActiveDayId] = useState(null);
   const [activeEventId, setActiveEventId] = useState(null);
@@ -628,6 +725,12 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
       ? activeEvent.lines.map(l => l.itemRef === item.id ? { ...l, qty: l.qty + 1 } : l)
       : [...activeEvent.lines, { id: uid(), itemRef: item.id, category: catName, name: item.name, cost: item.cost, qty: 1 }];
     updateDays(days.map(d => d.id === activeDay.id ? { ...d, events: d.events.map(e => e.id === activeEvent.id ? { ...e, lines: newLines } : e) } : d));
+    if (setRecentItems) {
+      setRecentItems(prev => {
+        const withoutDupe = (prev || []).filter(r => r.id !== item.id);
+        return [{ id: item.id, name: item.name, cost: item.cost, category: catName }, ...withoutDupe].slice(0, 10);
+      });
+    }
   };
   const updateLine = (id, patch) => {
     const newLines = activeEvent.lines.map(l => l.id === id ? { ...l, ...patch } : l);
@@ -679,6 +782,11 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
     finalBudget = baseCost + profit + hotelCommissionAmount + individualCommissionAmount;
   }
   const commissionPct = hotelPct; // kept for any legacy reference below
+  const discountAmount = Number(budget.discountAmount) || 0;
+  const gstPercent = Number(budget.gstPercent) || 0;
+  const afterDiscount = isFinite(finalBudget) ? Math.max(0, finalBudget - discountAmount) : finalBudget;
+  const gstAmount = isFinite(afterDiscount) ? afterDiscount * (gstPercent / 100) : afterDiscount;
+  const grandTotal = isFinite(afterDiscount) ? afterDiscount + gstAmount : afterDiscount;
 
   const filteredCats = categories.map(c => ({ ...c, items: c.items.filter(i => i.name.toLowerCase().includes(search.toLowerCase())) })).filter(c => c.items.length > 0 || !search);
 
@@ -728,10 +836,17 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
       <div style="font-family:Inter,sans-serif;font-size:13.5px;margin-bottom:20px;text-align:center;"><b>Date:</b> ${budget.date}</div>
       ${dayBlocks}
       ${expensesBlock}
+      ${(discountAmount > 0 || gstPercent > 0) ? `
+      <div style="margin:14px 0;font-family:Inter,sans-serif;font-size:13px;color:#333;">
+        <div style="display:flex;justify-content:space-between;padding:4px 0;"><span>Subtotal</span><span>${(totalPct >= 100 && mode === "final") ? "—" : inr(finalBudget)}</span></div>
+        ${discountAmount > 0 ? `<div style="display:flex;justify-content:space-between;padding:4px 0;color:#B33A3A;"><span>Special Discount</span><span>−${inr(discountAmount)}</span></div>` : ""}
+        ${gstPercent > 0 ? `<div style="display:flex;justify-content:space-between;padding:4px 0;"><span>GST (${gstPercent}%)</span><span>${inr(gstAmount)}</span></div>` : ""}
+      </div>` : ""}
       <div style="background:linear-gradient(135deg, #6B1E23, #8C5A2B); color:#FAF6EE; padding:18px 20px; border-radius:10px; font-family:'Cormorant Garamond',serif; font-size:26px; font-weight:700; text-align:center; margin-top:10px;">
-        Total Budget: ${inr(finalBudget)}
+        Total Budget: ${(totalPct >= 100 && mode === "final") ? "—" : inr(grandTotal)}
       </div>
     `;
+    update({ quoteSentAt: Date.now() });
     window.downloadPdf((budget.clientName || budget.name || "quotation").replace(/[^a-z0-9]/gi, "_"));
   };
 
@@ -763,12 +878,29 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
             <label style={{ fontSize: 11.5, color: "#8a8071" }}>Managed by (our team)</label>
             <input className="beo-input" value={budget.managerName || ""} onChange={e => update({ managerName: e.target.value })} style={{ marginTop: 4 }} />
           </div>
+          <div>
+            <label style={{ fontSize: 11.5, color: "#8a8071" }}>Next follow-up date</label>
+            <input className="beo-input" type="date" value={budget.followUpDate || ""} onChange={e => update({ followUpDate: e.target.value })} style={{ marginTop: 4 }} />
+          </div>
         </div>
         <label style={{ fontSize: 11.5, color: "#8a8071", display: "block", marginBottom: 6 }}>Status</label>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {BUDGET_STATUSES.map(s => (
             <button key={s} className="beo-btn" onClick={() => update({ status: s })} style={{ padding: "7px 14px", fontSize: 12.5, borderRadius: 6, background: (budget.status || "Lead") === s ? budgetStatusColor(s).fg : "#F1EADA", color: (budget.status || "Lead") === s ? "#fff" : "#211D17" }}>{s}</button>
           ))}
+        </div>
+
+        <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer" }}>
+            <input type="checkbox" checked={!!budget.clientApproved} onChange={e => update({ clientApproved: e.target.checked, clientApprovedDate: e.target.checked ? (budget.clientApprovedDate || new Date().toISOString().slice(0, 10)) : "" })} />
+            Client approved this quote
+          </label>
+          {budget.clientApproved && (
+            <input className="beo-input" type="date" value={budget.clientApprovedDate || ""} onChange={e => update({ clientApprovedDate: e.target.value })} style={{ width: 150, fontSize: 12.5, padding: "5px 8px" }} />
+          )}
+          {budget.quoteSentAt && (
+            <span style={{ fontSize: 11.5, color: "#a39a89" }}>Last sent: {new Date(budget.quoteSentAt).toLocaleString("en-IN")}</span>
+          )}
         </div>
 
         {budget.status === "Converted" && (
@@ -847,6 +979,16 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
             <React.Fragment>
               <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 8 }}>Adding items to: <b style={{ color: "#6B1E23" }}>{activeDay.label} → {activeEvent.name}</b></div>
+                {recentItems && recentItems.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 6 }}>Recently Used</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {recentItems.map(r => (
+                        <span key={r.id} onClick={() => addLine(r.category, r)} style={{ padding: "5px 10px", borderRadius: 14, background: "#F1EADA", fontSize: 12, cursor: "pointer" }}>{r.name} <span style={{ color: "#8a8071" }}>{inr(r.cost)}</span></span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <input className="beo-input" placeholder="Search items across all folders…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
                 <div style={{ maxHeight: 320, overflowY: "auto" }}>
                   {filteredCats.map(c => (
@@ -924,10 +1066,24 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
             <Row label={`Hotel commission (${hotelPct}%)`} value={(totalPct >= 100 && mode === "final") ? "—" : inr(hotelCommissionAmount)} />
             <Row label={`Individual commission (${individualPct}%)`} value={(totalPct >= 100 && mode === "final") ? "—" : inr(individualCommissionAmount)} />
           </div>
+
+          <div style={{ margin: "14px 0" }}>
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>Special discount (₹)</label>
+            <input className="beo-input" type="number" value={budget.discountAmount || 0} onChange={e => update({ discountAmount: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+          </div>
+          <div style={{ margin: "14px 0" }}>
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>GST (%)</label>
+            <input className="beo-input" type="number" value={budget.gstPercent || 0} onChange={e => update({ gstPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+          </div>
+          <div style={{ borderTop: "1px dashed #E4DCC8", margin: "14px 0", paddingTop: 12 }}>
+            <Row label="Subtotal" value={(totalPct >= 100 && mode === "final") ? "—" : inr(finalBudget)} />
+            {discountAmount > 0 && <Row label="Special discount" value={"−" + inr(discountAmount)} />}
+            {gstPercent > 0 && <Row label={`GST (${gstPercent}%)`} value={inr(gstAmount)} />}
+          </div>
           <div style={{ background: "#6B1E23", borderRadius: 8, padding: "14px 16px" }}>
             <div style={{ fontSize: 12, color: "#E9D9B8" }}>Quote to client</div>
             <div className="beo-serif" style={{ fontSize: 28, fontWeight: 700, color: "#FAF6EE" }}>
-              {(totalPct >= 100 && mode === "final") ? "Set commission < 100%" : inr(finalBudget)}
+              {(totalPct >= 100 && mode === "final") ? "Set commission < 100%" : inr(grandTotal)}
             </div>
           </div>
         </div>
@@ -1178,7 +1334,7 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
   );
 }
 
-function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
+function HotelDetail({ city, hotel, cities, quotes, onOpenQuote, onBack, onChange }) {
   const [photoIdx, setPhotoIdx] = useState(0);
   const [newPhotoUrl, setNewPhotoUrl] = useState("");
   const [newDocLabel, setNewDocLabel] = useState("");
@@ -1193,8 +1349,14 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
   const photos = hotel.photos || [];
   const documents = hotel.documents || [];
   const notes = hotel.notes || [];
+  const extraContacts = hotel.extraContacts || [];
   const relatedQuotes = (quotes || []).filter(q => q.hotelId === hotel.id).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const photoUrl = (p) => (typeof p === "string" ? p : p.url);
+  const allBrands = Array.from(new Set((cities || []).flatMap(c => c.hotels.map(h => (h.brand || "").trim())).filter(Boolean))).sort();
+
+  const addExtraContact = () => update({ extraContacts: [...extraContacts, { id: uid(), name: "", phone: "", position: "" }] });
+  const updateExtraContact = (id, patch) => update({ extraContacts: extraContacts.map(c => c.id === id ? { ...c, ...patch } : c) });
+  const removeExtraContact = (id) => update({ extraContacts: extraContacts.filter(c => c.id !== id) });
 
   const addNote = () => {
     if (!newNoteText.trim()) return;
@@ -1311,7 +1473,10 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
           <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
             <input className="beo-input beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 8, border: "none", padding: "4px 0" }} value={hotel.name} onChange={e => update({ name: e.target.value })} />
             <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Brand / Group (e.g. Taj, Marriott, Hyatt, Oberoi)</label>
-            <input className="beo-input" placeholder="e.g. Taj" value={hotel.brand || ""} onChange={e => update({ brand: e.target.value })} style={{ marginTop: 4, marginBottom: 12, maxWidth: 260 }} />
+            <input className="beo-input" list="brand-options" placeholder="Choose existing or type a new one" value={hotel.brand || ""} onChange={e => update({ brand: e.target.value })} style={{ marginTop: 4, marginBottom: 12, maxWidth: 260 }} />
+            <datalist id="brand-options">
+              {allBrands.map(b => <option key={b} value={b} />)}
+            </datalist>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Description (capacity, key points, venues, etc.)</label>
             <textarea className="beo-input" rows={5} value={hotel.description} onChange={e => update({ description: e.target.value })} style={{ marginTop: 6, resize: "vertical", fontFamily: "inherit" }} placeholder="e.g. 442 rooms, 7,500 sqm event space across 15 venues, largest ballroom seats 1200 pax…" />
           </div>
@@ -1424,6 +1589,27 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
           {hotel.altContact?.phone && (
             <a href={waLink(hotel.altContact.phone)} target="_blank" rel="noreferrer" style={{ display: "inline-block", fontSize: 12.5, color: "#2E7D32", fontWeight: 600, textDecoration: "none" }}>💬 WhatsApp {hotel.altContact.name || "Alternate Contact"}</a>
           )}
+
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px dashed #E4DCC8" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600 }}>Additional Contacts</div>
+              <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={addExtraContact}>＋ Add</button>
+            </div>
+            {extraContacts.length === 0 && <div style={{ color: "#a39a89", fontSize: 12 }}>None added.</div>}
+            {extraContacts.map(c => (
+              <div key={c.id} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid #F1EADA" }}>
+                <input className="beo-input" placeholder="Name" value={c.name} onChange={e => updateExtraContact(c.id, { name: e.target.value })} style={{ marginBottom: 6 }} />
+                <input className="beo-input" placeholder="Position (e.g. Banquet Manager)" value={c.position || ""} onChange={e => updateExtraContact(c.id, { position: e.target.value })} style={{ marginBottom: 6 }} />
+                <input className="beo-input" placeholder="Phone number" value={c.phone} onChange={e => updateExtraContact(c.id, { phone: e.target.value })} style={{ marginBottom: 6 }} />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  {c.phone ? (
+                    <a href={waLink(c.phone)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2E7D32", fontWeight: 600, textDecoration: "none" }}>💬 WhatsApp {c.name || ""}</a>
+                  ) : <span />}
+                  <span style={{ color: "#c98b8e", cursor: "pointer", fontSize: 12 }} onClick={() => removeExtraContact(c.id)}>🗑 Remove</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
