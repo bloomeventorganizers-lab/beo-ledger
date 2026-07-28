@@ -82,16 +82,19 @@
       return doc.splitTextToSize(String(text), maxWidth);
     };
 
+    const primary = config.themePrimary || [107, 30, 35];
+    const accent = config.themeAccent || [184, 147, 74];
+
     if (config.companyName) {
       doc.setFont("times", "italic");
       doc.setFontSize(11);
-      doc.setTextColor(184, 147, 74);
+      doc.setTextColor(accent[0], accent[1], accent[2]);
       doc.text(config.companyName.toUpperCase(), pageWidth / 2, y, { align: "center" });
       y += 8;
     }
     doc.setFont("times", "bold");
     doc.setFontSize(22);
-    doc.setTextColor(107, 30, 35);
+    doc.setTextColor(primary[0], primary[1], primary[2]);
     doc.text(config.title || "Event Quotation", pageWidth / 2, y, { align: "center" });
     y += 9;
 
@@ -158,7 +161,7 @@
 
     if (config.grandTotalLabel) {
       checkPageBreak(20);
-      doc.setFillColor(107, 30, 35);
+      doc.setFillColor(primary[0], primary[1], primary[2]);
       doc.roundedRect(margin, y, pageWidth - margin * 2, 16, 2, 2, "F");
       doc.setTextColor(255, 255, 255);
       doc.setFont("times", "bold");
@@ -187,6 +190,14 @@ const db = window.__db;
 const DEFAULT_CATEGORIES = ["Entries", "SFX", "Welcome", "Itineraries", "Hotels", "Live Band", "Games", "Stationery"];
 const ADMIN_EMAIL = "bloomeventorganizers@gmail.com";
 const uid = () => Math.random().toString(36).slice(2, 10);
+const getDeviceUser = () => {
+  let name = localStorage.getItem("beo_device_user");
+  if (!name) {
+    name = window.prompt("Quick one-time setup: what's your name? (shown on the activity log so the team knows who did what)") || "Unknown";
+    localStorage.setItem("beo_device_user", name);
+  }
+  return name;
+};
 const inr = (n) => "₹" + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 const fmtCurrency = (n, symbol) => (symbol || "₹") + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 const computeBudgetFinancials = (b) => {
@@ -210,6 +221,11 @@ const computeBudgetFinancials = (b) => {
 };
 const CURRENCY_OPTIONS = ["₹", "$", "€", "£", "AED"];
 const HOTEL_STATUSES = ["Not contacted", "Contacted", "Quote received", "Booked", "Dead lead"];
+const PDF_THEMES = {
+  royal: { label: "Royal", primary: [107, 30, 35], accent: [184, 147, 74], dayColors: ["#6B1E23", "#8C5A2B", "#3E5C4A", "#4A5568", "#7A4A6B", "#2E5C6E"], swatch: "#6B1E23" },
+  minimal: { label: "Minimal", primary: [51, 51, 51], accent: [120, 120, 120], dayColors: ["#333333", "#555555", "#777777", "#333333", "#555555", "#777777"], swatch: "#333333" },
+  ocean: { label: "Ocean", primary: [27, 73, 101], accent: [95, 168, 211], dayColors: ["#1B4965", "#5FA8D3", "#62B6CB", "#1B4965", "#5FA8D3", "#62B6CB"], swatch: "#1B4965" },
+};
 const BUDGET_STATUSES = ["Lead", "Connected", "Converted"];
 const budgetStatusColor = (status) => ({
   "Lead": { bg: "#F1EADA", fg: "#8a8071" },
@@ -228,6 +244,21 @@ const waLinkWithText = (phone, text) => {
   const digits = String(phone || "").replace(/[^0-9]/g, "");
   const base = digits ? `https://wa.me/${digits}` : "https://wa.me/";
   return `${base}?text=${encodeURIComponent(text || "")}`;
+};
+const toDirectImageUrl = (url) => {
+  let u = url.trim();
+  if (u.includes("google.com/imgres")) {
+    try {
+      const params = new URL(u).searchParams;
+      const real = params.get("imgurl");
+      if (real) return decodeURIComponent(real);
+    } catch (e) {}
+  }
+  let m = u.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  if (!m) m = u.match(/drive\.google\.com\/open\?id=([^&]+)/);
+  if (!m) m = u.match(/[?&]id=([^&]+)/);
+  if (m && m[1]) return `https://lh3.googleusercontent.com/d/${m[1]}`;
+  return u;
 };
 const photoUrlOf = (p) => (p && typeof p === "object" ? p.url : p);
 
@@ -344,6 +375,7 @@ function MainApp({ user }) {
   const [budgets, setBudgets] = useState([]);
   const [recentItems, setRecentItems] = useState([]);
   const [bundles, setBundles] = useState([]);
+  const [activityLog, setActivityLog] = useState([]);
   const [cities, setCities] = useState([]);
   const [corpQuotes, setCorpQuotes] = useState([]);
   const [tab, setTab] = useState(isAdmin ? "dashboard" : "hotels");
@@ -369,6 +401,8 @@ function MainApp({ user }) {
       else setCities([]);
       if (data && data.corpQuotes) setCorpQuotes(data.corpQuotes);
       else setCorpQuotes([]);
+      if (data && data.activityLog) setActivityLog(data.activityLog);
+      else setActivityLog([]);
       setSharedLoaded(true);
     }, err => {
       console.error(err);
@@ -429,10 +463,15 @@ function MainApp({ user }) {
     if (!loaded) return;
     if (skipNextSharedSave.current) { skipNextSharedSave.current = false; return; }
     setSyncStatus("syncing");
-    sharedDocRef.set({ cities, corpQuotes }, { merge: true })
+    sharedDocRef.set({ cities, corpQuotes, activityLog }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [cities, corpQuotes]);
+  }, [cities, corpQuotes, activityLog]);
+
+  const logActivity = (what) => {
+    const entry = { id: uid(), who: getDeviceUser(), what, when: Date.now() };
+    setActivityLog(prev => [entry, ...(prev || [])].slice(0, 100));
+  };
 
   const openBudget = (id) => { setActiveBudgetId(id); setTab("builder"); };
   const createBudget = () => {
@@ -443,6 +482,7 @@ function MainApp({ user }) {
       advancePayments: [], notes: [], createdAt: Date.now()
     };
     setBudgets(prev => [b, ...prev]);
+    logActivity("Created a new client budget");
     openBudget(b.id);
   };
 
@@ -458,6 +498,7 @@ function MainApp({ user }) {
       profit: 0, commissionPercent: 0, commissionMode: "final", currency: "₹", createdAt: Date.now()
     };
     setCorpQuotes(prev => [q, ...prev]);
+    logActivity("Created a new corporate quote");
     openQuote(q.id);
   };
 
@@ -515,6 +556,7 @@ function MainApp({ user }) {
         </div>
         <nav style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           {isAdmin && <TabBtn active={tab === "dashboard"} onClick={() => setTab("dashboard")}>Dashboard</TabBtn>}
+          {isAdmin && <TabBtn active={tab === "quickquote"} onClick={() => setTab("quickquote")}>⚡ Quick Quote</TabBtn>}
           {isAdmin && <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>}
           {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
           <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
@@ -579,22 +621,42 @@ function MainApp({ user }) {
         </div>
       )}
       <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
-        {isAdmin && tab === "dashboard" && <DashboardView budgets={budgets} onOpen={openBudget} />}
+        {isAdmin && tab === "dashboard" && <DashboardView budgets={budgets} onOpen={openBudget} activityLog={activityLog} />}
+        {isAdmin && tab === "quickquote" && (
+          <QuickQuoteView
+            categories={categories}
+            onSave={(items, clientName) => {
+              const b = {
+                id: uid(), name: clientName ? `Quick Quote — ${clientName}` : "Quick Quote", clientName: clientName || "",
+                date: new Date().toISOString().slice(0, 10), lines: [],
+                days: [{ id: uid(), date: new Date().toISOString().slice(0, 10), label: "Day 1", events: [{ id: uid(), name: "Quick Quote", time: "", lines: items }] }],
+                profit: 0, commissionPercent: 0, individualCommissionPercent: 0, commissionMode: "final",
+                otherExpenses: [], status: "Lead", clientPhone: "", clientAltPhone: "", managerName: "",
+                advancePayments: [], notes: [], createdAt: Date.now()
+              };
+              setBudgets(prev => [b, ...prev]);
+              logActivity("Created a Quick Quote" + (clientName ? ` for ${clientName}` : ""));
+              openBudget(b.id);
+            }}
+          />
+        )}
         {isAdmin && tab === "inventory" && <InventoryView categories={categories} setCategories={setCategories} bundles={bundles} setBundles={setBundles} />}
         {isAdmin && tab === "budgets" && <BudgetsListView budgets={budgets} setBudgets={setBudgets} onOpen={openBudget} onCreate={createBudget} />}
         {isAdmin && tab === "builder" && activeBudgetId && (
           <BudgetBuilder
             budget={budgets.find(b => b.id === activeBudgetId)}
+            allBudgets={budgets}
             categories={categories}
             recentItems={recentItems}
             setRecentItems={setRecentItems}
             bundles={bundles}
             onBack={() => setTab("budgets")}
+            onOpenBudget={openBudget}
             onChange={(updated) => setBudgets(prev => prev.map(b => b.id === updated.id ? updated : b))}
           />
         )}
         {tab === "hotels" && (
-          <HotelsView cities={cities} setCities={setCities} onOpenHotel={openHotel} />
+          <HotelsView cities={cities} setCities={setCities} onOpenHotel={openHotel} logActivity={logActivity} />
         )}
         {tab === "hotelDetail" && activeHotel && (
           <HotelDetail
@@ -637,6 +699,8 @@ function InventoryView({ categories, setCategories, bundles, setBundles }) {
   const [itemDraft, setItemDraft] = useState({});
   const [selectedForBundle, setSelectedForBundle] = useState([]);
   const [bundleName, setBundleName] = useState("");
+  const [editingPhotoFor, setEditingPhotoFor] = useState(null);
+  const [photoUrlDraft, setPhotoUrlDraft] = useState("");
 
   useEffect(() => { if ((!openCat || !categories.find(c => c.id === openCat)) && categories[0]) setOpenCat(categories[0].id); }, [categories]);
 
@@ -696,11 +760,22 @@ function InventoryView({ categories, setCategories, bundles, setBundles }) {
               <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>{cat.name}</div>
               {cat.items.length === 0 && <div style={{ color: "#a39a89", fontSize: 14, marginBottom: 10 }}>No items yet.</div>}
               {cat.items.map(item => (
-                <div key={item.id} style={{ display: "grid", gridTemplateColumns: "24px 1fr 120px 30px", gap: 8, alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA" }}>
-                  <input type="checkbox" checked={!!selectedForBundle.find(x => x.itemRef === item.id)} onChange={() => toggleBundleItem(cat.name, item)} title="Select for bundle" />
-                  <input className="beo-input" value={item.name} onChange={e => updateItem(cat.id, item.id, { name: e.target.value })} />
-                  <input className="beo-input" type="number" value={item.cost} onChange={e => updateItem(cat.id, item.id, { cost: Number(e.target.value) })} />
-                  <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeItem(cat.id, item.id)}>🗑</span>
+                <div key={item.id}>
+                  <div style={{ display: "grid", gridTemplateColumns: "36px 24px 1fr 120px 30px", gap: 8, alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA" }}>
+                    <div onClick={() => setEditingPhotoFor(editingPhotoFor === item.id ? null : item.id)} style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", background: "#F1EADA", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} title="Click to add/change photo">
+                      {item.photoUrl ? <img src={item.photoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.opacity = 0.2} /> : <span style={{ fontSize: 14, color: "#a39a89" }}>📷</span>}
+                    </div>
+                    <input type="checkbox" checked={!!selectedForBundle.find(x => x.itemRef === item.id)} onChange={() => toggleBundleItem(cat.name, item)} title="Select for bundle" />
+                    <input className="beo-input" value={item.name} onChange={e => updateItem(cat.id, item.id, { name: e.target.value })} />
+                    <input className="beo-input" type="number" value={item.cost} onChange={e => updateItem(cat.id, item.id, { cost: Number(e.target.value) })} />
+                    <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeItem(cat.id, item.id)}>🗑</span>
+                  </div>
+                  {editingPhotoFor === item.id && (
+                    <div style={{ display: "flex", gap: 6, padding: "4px 4px 10px 44px" }}>
+                      <input className="beo-input" placeholder="Paste photo link (Drive, Imgur, or direct image URL)" value={photoUrlDraft} onChange={e => setPhotoUrlDraft(e.target.value)} style={{ fontSize: 12.5 }} />
+                      <button className="beo-btn beo-btn-primary" style={{ fontSize: 12 }} onClick={() => { updateItem(cat.id, item.id, { photoUrl: toDirectImageUrl(photoUrlDraft) }); setPhotoUrlDraft(""); setEditingPhotoFor(null); }}>Save</button>
+                    </div>
+                  )}
                 </div>
               ))}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 120px auto", gap: 8, alignItems: "center", paddingTop: 10, marginTop: 10, borderTop: "1px dashed #E4DCC8" }}>
@@ -745,6 +820,71 @@ function InventoryView({ categories, setCategories, bundles, setBundles }) {
   );
 }
 
+function QuickQuoteView({ categories, onSave }) {
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState([]);
+  const [clientName, setClientName] = useState("");
+
+  const allItems = categories.flatMap(c => c.items.map(i => ({ ...i, category: c.name })));
+  const filtered = search.trim() ? allItems.filter(i => i.name.toLowerCase().includes(search.trim().toLowerCase())) : allItems;
+
+  const addItem = (item) => {
+    setSelected(prev => {
+      const exists = prev.find(l => l.itemRef === item.id);
+      if (exists) return prev.map(l => l.itemRef === item.id ? { ...l, qty: l.qty + 1 } : l);
+      return [...prev, { id: uid(), itemRef: item.id, category: item.category, name: item.name, cost: item.cost, qty: 1 }];
+    });
+  };
+  const changeQty = (id, delta) => {
+    setSelected(prev => prev.map(l => l.id === id ? { ...l, qty: Math.max(1, l.qty + delta) } : l).filter(l => l.qty > 0));
+  };
+  const removeItem = (id) => setSelected(prev => prev.filter(l => l.id !== id));
+
+  const total = selected.reduce((s, l) => s + l.cost * l.qty, 0);
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 6 }}>⚡ Quick Quote</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", marginBottom: 16 }}>Tap items to build a rough quote live with a client — save it as a draft to refine fully later.</div>
+
+      <input className="beo-input" placeholder="Client name (optional)" value={clientName} onChange={e => setClientName(e.target.value)} style={{ marginBottom: 12, fontSize: 15, padding: "12px 14px" }} />
+      <input className="beo-input" placeholder="🔍 Search items…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 16, fontSize: 15, padding: "12px 14px" }} />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 100 }}>
+        {filtered.map(item => (
+          <button key={item.id} onClick={() => addItem(item)} className="beo-btn" style={{ background: "#F1EADA", padding: "16px 10px", borderRadius: 10, fontSize: 14, fontWeight: 600, textAlign: "center", display: "block", lineHeight: 1.4 }}>
+            {item.name}
+            <div style={{ fontSize: 12, color: "#8a8071", fontWeight: 400 }}>{inr(item.cost)}</div>
+          </button>
+        ))}
+        {filtered.length === 0 && <div style={{ color: "#a39a89", gridColumn: "1/-1" }}>No items match.</div>}
+      </div>
+
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#fff", borderTop: "2px solid #E4DCC8", padding: "14px 20px", boxShadow: "0 -4px 20px rgba(0,0,0,0.08)", zIndex: 100 }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+          {selected.length > 0 && (
+            <div style={{ display: "flex", gap: 10, overflowX: "auto", marginBottom: 10, paddingBottom: 4 }}>
+              {selected.map(l => (
+                <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "#FAF6EE", borderRadius: 8, padding: "6px 10px", flexShrink: 0, fontSize: 13 }}>
+                  <span>{l.name}</span>
+                  <button className="beo-btn beo-btn-ghost" style={{ padding: "2px 8px", fontSize: 14 }} onClick={() => changeQty(l.id, -1)}>−</button>
+                  <span style={{ fontWeight: 700 }}>{l.qty}</span>
+                  <button className="beo-btn beo-btn-ghost" style={{ padding: "2px 8px", fontSize: 14 }} onClick={() => changeQty(l.id, 1)}>＋</button>
+                  <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeItem(l.id)}>×</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23" }}>Total: {inr(total)}</div>
+            <button className="beo-btn beo-btn-primary" disabled={selected.length === 0} style={{ opacity: selected.length === 0 ? 0.5 : 1, padding: "12px 24px", fontSize: 15 }} onClick={() => onSave(selected, clientName)}>Save as Draft Budget →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ label, value, sub, color }) {
   return (
     <div className="beo-card" style={{ padding: 18 }}>
@@ -755,7 +895,7 @@ function StatCard({ label, value, sub, color }) {
   );
 }
 
-function DashboardView({ budgets, onOpen }) {
+function DashboardView({ budgets, onOpen, activityLog }) {
   const now = new Date();
   const curMonth = now.getMonth(), curYear = now.getFullYear();
 
@@ -778,14 +918,40 @@ function DashboardView({ budgets, onOpen }) {
     })
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 
+  const totalDeals = leads.length + connected.length + converted.length;
+  const conversionRate = totalDeals > 0 ? Math.round((converted.length / totalDeals) * 100) : 0;
+  const avgDealSize = converted.length > 0 ? convertedRevenue / converted.length : 0;
+
+  const monthCounts = {};
+  budgets.forEach(b => {
+    if (!b.date) return;
+    const d = new Date(b.date);
+    if (isNaN(d)) return;
+    const key = d.toLocaleString("en-IN", { month: "long", year: "numeric" });
+    monthCounts[key] = (monthCounts[key] || 0) + 1;
+  });
+  const busiestMonths = Object.entries(monthCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+
   return (
     <div>
       <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 18 }}>Dashboard</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 14 }}>
         <StatCard label="Pipeline Value" value={inr(pipelineValue)} sub={`${leads.length} lead${leads.length === 1 ? "" : "s"} + ${connected.length} connected`} color="#8a8071" />
         <StatCard label="Converted Revenue" value={inr(convertedRevenue)} sub={`${converted.length} converted deal${converted.length === 1 ? "" : "s"}`} color="#2E7D32" />
         <StatCard label="Advance Received" value={inr(totalReceived)} sub="from converted deals" color="#2A6A9E" />
         <StatCard label="Balance Due" value={inr(balanceDue)} sub="from converted deals" color="#B8712A" />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 20 }}>
+        <StatCard label="Conversion Rate" value={`${conversionRate}%`} sub={`${converted.length} of ${totalDeals} total deals`} color="#6B1E23" />
+        <StatCard label="Average Deal Size" value={inr(avgDealSize)} sub="per converted deal" color="#7A4A6B" />
+        <div className="beo-card" style={{ padding: 18 }}>
+          <div style={{ fontSize: 11.5, color: "#8a8071", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>Busiest Months</div>
+          {busiestMonths.length === 0 ? <div style={{ color: "#a39a89", fontSize: 13 }}>Not enough data yet.</div> : busiestMonths.map(([month, count]) => (
+            <div key={month} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+              <span>{month}</span><span style={{ fontWeight: 700, color: "#6B1E23" }}>{count} event{count === 1 ? "" : "s"}</span>
+            </div>
+          ))}
+        </div>
       </div>
       <div className="beo-card" style={{ padding: 20 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Events this month</div>
@@ -798,6 +964,18 @@ function DashboardView({ budgets, onOpen }) {
               <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: budgetStatusColor(b.status).bg, color: budgetStatusColor(b.status).fg }}>{b.status || "Lead"}</span>
               <span style={{ fontSize: 12.5, color: "#6B1E23" }}>{b.date}</span>
             </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="beo-card" style={{ padding: 20, marginTop: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Activity Log</div>
+        {(!activityLog || activityLog.length === 0) ? (
+          <div style={{ color: "#a39a89", fontSize: 13.5 }}>No activity logged yet.</div>
+        ) : activityLog.slice(0, 15).map(a => (
+          <div key={a.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+            <div><b style={{ color: "#6B1E23" }}>{a.who}</b>: {a.what}</div>
+            <span style={{ color: "#a39a89" }}>{new Date(a.when).toLocaleString("en-IN")}</span>
           </div>
         ))}
       </div>
@@ -840,7 +1018,7 @@ function BudgetsListView({ budgets, setBudgets, onOpen, onCreate }) {
   );
 }
 
-function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundles, onBack, onChange }) {
+function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentItems, bundles, onBack, onOpenBudget, onChange }) {
   const [search, setSearch] = useState("");
   const [activeDayId, setActiveDayId] = useState(null);
   const [activeEventId, setActiveEventId] = useState(null);
@@ -976,7 +1154,8 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
 
   const filteredCats = categories.map(c => ({ ...c, items: c.items.filter(i => i.name.toLowerCase().includes(search.toLowerCase())) })).filter(c => c.items.length > 0 || !search);
 
-  const DAY_COLORS = ["#6B1E23", "#8C5A2B", "#3E5C4A", "#4A5568", "#7A4A6B", "#2E5C6E"];
+  const activeTheme = PDF_THEMES[budget.pdfTheme || "royal"];
+  const DAY_COLORS = activeTheme.dayColors;
 
   const hexToRgb = (hex) => {
     const m = hex.replace("#", "").match(/.{1,2}/g);
@@ -1017,7 +1196,9 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
       sections,
       totalRows,
       grandTotalLabel: "Total Budget",
-      grandTotal: (totalPct >= 100 && mode === "final") ? "—" : inr(grandTotal)
+      grandTotal: (totalPct >= 100 && mode === "final") ? "—" : inr(grandTotal),
+      themePrimary: activeTheme.primary,
+      themeAccent: activeTheme.accent
     };
   };
 
@@ -1037,9 +1218,30 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
     }
   };
 
+  const history = budget.history || [];
+  const otherClientBudgets = (budget.clientPhone && budget.clientPhone.trim())
+    ? (allBudgets || []).filter(b => b.id !== budget.id && b.clientPhone && b.clientPhone.trim() === budget.clientPhone.trim())
+    : [];
+  const buildVersionEntry = (label) => {
+    const snapshot = {
+      days: budget.days || [], otherExpenses: budget.otherExpenses || [], profit: budget.profit || 0,
+      commissionPercent: budget.commissionPercent || 0, individualCommissionPercent: budget.individualCommissionPercent || 0,
+      commissionMode: budget.commissionMode || "final", discountAmount: budget.discountAmount || 0, gstPercent: budget.gstPercent || 0
+    };
+    return { id: uid(), timestamp: Date.now(), label: label || "Saved version", total: (totalPct >= 100 && mode === "final") ? "—" : inr(grandTotal), snapshot };
+  };
+  const saveVersion = (label) => {
+    update({ history: [buildVersionEntry(label), ...history].slice(0, 20) });
+  };
+  const restoreVersion = (entry) => {
+    if (!window.confirm(`Restore this version from ${new Date(entry.timestamp).toLocaleString("en-IN")}? Your current unsaved changes to days/events/pricing will be replaced.`)) return;
+    onChange({ ...budget, ...entry.snapshot });
+  };
+
   const exportQuotation = () => {
     const config = buildQuoteConfig();
-    update({ quoteSentAt: Date.now() });
+    const newEntry = buildVersionEntry("Sent to client");
+    update({ history: [newEntry, ...history].slice(0, 20), quoteSentAt: Date.now() });
     window.generatePdf({ ...config, filename: (budget.clientName || budget.name || "quotation").replace(/[^a-z0-9]/gi, "_") });
   };
 
@@ -1053,6 +1255,12 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
       </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
         <input className="beo-input" placeholder="Company name for PDF (optional, blank if none)" value={budget.pdfCompanyName || ""} onChange={e => update({ pdfCompanyName: e.target.value })} style={{ flex: "1 1 260px" }} />
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "#8a8071" }}>Theme:</span>
+          {Object.keys(PDF_THEMES).map(key => (
+            <span key={key} title={PDF_THEMES[key].label} onClick={() => update({ pdfTheme: key })} style={{ width: 22, height: 22, borderRadius: "50%", background: PDF_THEMES[key].swatch, cursor: "pointer", display: "inline-block", border: (budget.pdfTheme || "royal") === key ? "3px solid #B8934A" : "2px solid #fff", boxShadow: "0 0 0 1px #E4DCC8" }} />
+          ))}
+        </div>
         <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
         <button
           className="beo-btn"
@@ -1143,6 +1351,33 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
       </div>
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontWeight: 700 }}>Version History</div>
+          <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={() => saveVersion("Manual save")}>📸 Save version</button>
+        </div>
+        {history.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 12.5 }}>No versions saved yet. One is saved automatically every time you export a quotation.</div>
+        ) : history.map(h => (
+          <div key={h.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+            <div><b>{h.label}</b> · {new Date(h.timestamp).toLocaleString("en-IN")} · Total: {h.total}</div>
+            <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => restoreVersion(h)}>Restore</button>
+          </div>
+        ))}
+      </div>
+
+      {otherClientBudgets.length > 0 && (
+        <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Client History — {budget.clientName || "this client"}'s other events</div>
+          {otherClientBudgets.map(b => (
+            <div key={b.id} onClick={() => onOpenBudget && onOpenBudget(b.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 4px", borderTop: "1px solid #F1EADA", cursor: "pointer", fontSize: 13.5 }}>
+              <div>{b.name} <span style={{ color: "#8a8071", fontSize: 12 }}>({b.date})</span></div>
+              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: budgetStatusColor(b.status).bg, color: budgetStatusColor(b.status).fg }}>{b.status || "Lead"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Days</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
           {days.map((d, i) => (
@@ -1214,8 +1449,12 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
                     <div key={c.id} style={{ marginBottom: 10 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", margin: "6px 0" }}>{c.name}</div>
                       {c.items.map(item => (
-                        <div key={item.id} onClick={() => addLine(c.name, item)} style={{ display: "flex", justifyContent: "space-between", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 13.5 }}>
-                          <span>{item.name}</span><span style={{ color: "#8a8071" }}>{inr(item.cost)} ＋</span>
+                        <div key={item.id} onClick={() => addLine(c.name, item)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 13.5 }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            {item.photoUrl && <img src={item.photoUrl} alt="" style={{ width: 22, height: 22, borderRadius: 4, objectFit: "cover" }} onError={e => e.target.style.display = "none"} />}
+                            {item.name}
+                          </span>
+                          <span style={{ color: "#8a8071" }}>{inr(item.cost)} ＋</span>
                         </div>
                       ))}
                     </div>
@@ -1313,7 +1552,7 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
 
 /* ============================= HOTELS (city-wise database) ============================= */
 
-function HotelsView({ cities, setCities, onOpenHotel }) {
+function HotelsView({ cities, setCities, onOpenHotel, logActivity }) {
   const [openCityId, setOpenCityId] = useState(cities[0]?.id || null);
   const [newCityName, setNewCityName] = useState("");
   const [newCityRegion, setNewCityRegion] = useState("");
@@ -1388,6 +1627,7 @@ function HotelsView({ cities, setCities, onOpenHotel }) {
       status: "Not contacted", lastContactedDate: "", notes: []
     };
     setCities(prev => prev.map(c => c.id === cityId ? { ...c, hotels: [...c.hotels, h] } : c));
+    if (logActivity) logActivity(`Added hotel "${name}"`);
     setNewHotelName("");
   };
   const removeHotel = (cityId, hotelId) => setCities(prev => prev.map(c => c.id === cityId ? { ...c, hotels: c.hotels.filter(h => h.id !== hotelId) } : c));
@@ -1637,23 +1877,6 @@ function HotelDetail({ city, hotel, cities, quotes, onOpenQuote, onBack, onChang
   };
   const removeNote = (id) => update({ notes: notes.filter(n => n.id !== id) });
 
-  const toDirectImageUrl = (url) => {
-    let u = url.trim();
-    // Google Images search result page → extract the real image URL
-    if (u.includes("google.com/imgres")) {
-      try {
-        const params = new URL(u).searchParams;
-        const real = params.get("imgurl");
-        if (real) return decodeURIComponent(real);
-      } catch (e) {}
-    }
-    // Google Drive share link → convert to a directly-renderable image URL
-    let m = u.match(/drive\.google\.com\/file\/d\/([^/]+)/);
-    if (!m) m = u.match(/drive\.google\.com\/open\?id=([^&]+)/);
-    if (!m) m = u.match(/[?&]id=([^&]+)/);
-    if (m && m[1]) return `https://lh3.googleusercontent.com/d/${m[1]}`;
-    return u;
-  };
   const addPhoto = () => {
     if (!newPhotoUrl.trim()) return;
     update({ photos: [...photos, toDirectImageUrl(newPhotoUrl)] });
@@ -2010,6 +2233,7 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
   const currency = quote.currency || "₹";
   const cur = (n) => fmtCurrency(n, currency);
 
+  const activeTheme = PDF_THEMES[quote.pdfTheme || "royal"];
   const buildQuoteConfig = () => {
     const items = [];
     if (rooms.qty) items.push({ name: `Rooms (${rooms.qty} rooms × ${rooms.nights} night${rooms.nights == 1 ? "" : "s"})`, qty: "" });
@@ -2020,10 +2244,12 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
       title: "The Executive Events",
       client: quote.clientName || "—",
       date: `${quote.date}${hotel ? "  ·  Venue: " + hotel.name + (city ? " · " + city.name : "") : ""}`,
-      sections: [{ title: "Corporate Event Quotation", color: [107, 30, 35], subsections: [{ title: "", items }] }],
+      sections: [{ title: "Corporate Event Quotation", color: activeTheme.primary, subsections: [{ title: "", items }] }],
       totalRows: [],
       grandTotalLabel: "Total Budget",
-      grandTotal: cur(finalBudget)
+      grandTotal: cur(finalBudget),
+      themePrimary: activeTheme.primary,
+      themeAccent: activeTheme.accent
     };
   };
 
@@ -2059,6 +2285,12 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
         <select className="beo-input" style={{ width: 90 }} value={currency} onChange={e => update({ currency: e.target.value })}>
           {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "#8a8071" }}>Theme:</span>
+          {Object.keys(PDF_THEMES).map(key => (
+            <span key={key} title={PDF_THEMES[key].label} onClick={() => update({ pdfTheme: key })} style={{ width: 22, height: 22, borderRadius: "50%", background: PDF_THEMES[key].swatch, cursor: "pointer", display: "inline-block", border: (quote.pdfTheme || "royal") === key ? "3px solid #B8934A" : "2px solid #fff", boxShadow: "0 0 0 1px #E4DCC8" }} />
+          ))}
+        </div>
       </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
         <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
