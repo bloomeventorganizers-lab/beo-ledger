@@ -107,6 +107,25 @@ const ADMIN_EMAIL = "bloomeventorganizers@gmail.com";
 const uid = () => Math.random().toString(36).slice(2, 10);
 const inr = (n) => "₹" + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 const fmtCurrency = (n, symbol) => (symbol || "₹") + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+const computeBudgetFinancials = (b) => {
+  const itemsCost = (b.lines || []).reduce((s, l) => s + l.cost * l.qty, 0) +
+    (b.days || []).reduce((s, d) => s + d.events.reduce((s2, e) => s2 + e.lines.reduce((s3, l) => s3 + l.cost * l.qty, 0), 0), 0);
+  const expensesTotal = (b.otherExpenses || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+  const baseCost = itemsCost + expensesTotal;
+  const profit = Number(b.profit) || 0;
+  const hotelPct = Number(b.commissionPercent) || 0;
+  const individualPct = Number(b.individualCommissionPercent) || 0;
+  const totalPct = hotelPct + individualPct;
+  const mode = b.commissionMode || "final";
+  let finalBudget;
+  if (mode === "final") {
+    finalBudget = totalPct >= 100 ? Infinity : (baseCost + profit) / (1 - totalPct / 100);
+  } else {
+    finalBudget = baseCost + profit + baseCost * (hotelPct / 100) + baseCost * (individualPct / 100);
+  }
+  const totalReceived = (b.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  return { baseCost, finalBudget, totalReceived };
+};
 const CURRENCY_OPTIONS = ["₹", "$", "€", "£", "AED"];
 const HOTEL_STATUSES = ["Not contacted", "Contacted", "Quote received", "Booked", "Dead lead"];
 const BUDGET_STATUSES = ["Lead", "Connected", "Converted"];
@@ -423,6 +442,66 @@ function InventoryView({ categories, setCategories }) {
             </React.Fragment>
           );
         })()}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, color }) {
+  return (
+    <div className="beo-card" style={{ padding: 18 }}>
+      <div style={{ fontSize: 11.5, color: "#8a8071", textTransform: "uppercase", fontWeight: 700, marginBottom: 6 }}>{label}</div>
+      <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700, color: color || "#6B1E23" }}>{value}</div>
+      {sub && <div style={{ fontSize: 11.5, color: "#a39a89", marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function DashboardView({ budgets, onOpen }) {
+  const now = new Date();
+  const curMonth = now.getMonth(), curYear = now.getFullYear();
+
+  const withFin = budgets.map(b => ({ b, fin: computeBudgetFinancials(b) }));
+  const leads = withFin.filter(x => (x.b.status || "Lead") === "Lead");
+  const connected = withFin.filter(x => x.b.status === "Connected");
+  const converted = withFin.filter(x => x.b.status === "Converted");
+
+  const safeSum = (arr) => arr.reduce((s, x) => s + (isFinite(x.fin.finalBudget) ? x.fin.finalBudget : 0), 0);
+  const pipelineValue = safeSum([...leads, ...connected]);
+  const convertedRevenue = safeSum(converted);
+  const totalReceived = converted.reduce((s, x) => s + x.fin.totalReceived, 0);
+  const balanceDue = convertedRevenue - totalReceived;
+
+  const thisMonthEvents = budgets
+    .filter(b => {
+      if (!b.date) return false;
+      const d = new Date(b.date);
+      return d.getMonth() === curMonth && d.getFullYear() === curYear;
+    })
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 18 }}>Dashboard</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 20 }}>
+        <StatCard label="Pipeline Value" value={inr(pipelineValue)} sub={`${leads.length} lead${leads.length === 1 ? "" : "s"} + ${connected.length} connected`} color="#8a8071" />
+        <StatCard label="Converted Revenue" value={inr(convertedRevenue)} sub={`${converted.length} converted deal${converted.length === 1 ? "" : "s"}`} color="#2E7D32" />
+        <StatCard label="Advance Received" value={inr(totalReceived)} sub="from converted deals" color="#2A6A9E" />
+        <StatCard label="Balance Due" value={inr(balanceDue)} sub="from converted deals" color="#B8712A" />
+      </div>
+      <div className="beo-card" style={{ padding: 20 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Events this month</div>
+        {thisMonthEvents.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 13.5 }}>No events scheduled this month.</div>
+        ) : thisMonthEvents.map(b => (
+          <div key={b.id} onClick={() => onOpen(b.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 4px", borderTop: "1px solid #F1EADA", cursor: "pointer", fontSize: 13.5 }}>
+            <div>{b.name} <span style={{ color: "#8a8071", fontSize: 12 }}>({b.clientName || "no client name"})</span></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: budgetStatusColor(b.status).bg, color: budgetStatusColor(b.status).fg }}>{b.status || "Lead"}</span>
+              <span style={{ fontSize: 12.5, color: "#6B1E23" }}>{b.date}</span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
