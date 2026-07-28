@@ -62,8 +62,38 @@
   window.__db = firebase.firestore();
   window.__storage = firebase.storage();
 </script>
+<script>
+  window.downloadPdf = function (filename) {
+    const el = document.getElementById("print-area");
+    el.style.display = "block";
+    el.style.position = "fixed";
+    el.style.left = "-9999px";
+    el.style.top = "0";
+    el.style.width = "760px";
+    el.style.background = "#fff";
+    el.style.padding = "30px";
+    const opt = {
+      margin: 10,
+      filename: (filename || "quotation") + ".pdf",
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+    };
+    html2pdf().set(opt).from(el).save().then(() => {
+      el.style.display = "none";
+      el.style.position = "";
+      el.style.left = "";
+      el.style.width = "";
+    }).catch((err) => {
+      console.error(err);
+      el.style.display = "none";
+      alert("PDF generation failed: " + err.message);
+    });
+  };
+</script>
 
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
@@ -79,6 +109,12 @@ const inr = (n) => "₹" + (Number(n) || 0).toLocaleString("en-IN", { maximumFra
 const fmtCurrency = (n, symbol) => (symbol || "₹") + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 const CURRENCY_OPTIONS = ["₹", "$", "€", "£", "AED"];
 const HOTEL_STATUSES = ["Not contacted", "Contacted", "Quote received", "Booked", "Dead lead"];
+const BUDGET_STATUSES = ["Lead", "Connected", "Converted"];
+const budgetStatusColor = (status) => ({
+  "Lead": { bg: "#F1EADA", fg: "#8a8071" },
+  "Connected": { bg: "#DCEAF5", fg: "#2A6A9E" },
+  "Converted": { bg: "#DDEFDD", fg: "#2E7D32" },
+}[status] || { bg: "#F1EADA", fg: "#8a8071" });
 const statusColor = (status) => ({
   "Not contacted": { bg: "#F1EADA", fg: "#8a8071" },
   "Contacted": { bg: "#DCEAF5", fg: "#2A6A9E" },
@@ -227,7 +263,12 @@ function MainApp({ user }) {
 
   const openBudget = (id) => { setActiveBudgetId(id); setTab("builder"); };
   const createBudget = () => {
-    const b = { id: uid(), name: "New Client Budget", clientName: "", date: new Date().toISOString().slice(0, 10), lines: [], days: [], profit: 0, commissionPercent: 0, commissionMode: "final", createdAt: Date.now() };
+    const b = {
+      id: uid(), name: "New Client Budget", clientName: "", date: new Date().toISOString().slice(0, 10), lines: [], days: [],
+      profit: 0, commissionPercent: 0, individualCommissionPercent: 0, commissionMode: "final",
+      otherExpenses: [], status: "Lead", clientPhone: "", clientAltPhone: "", managerName: "",
+      advancePayments: [], notes: [], createdAt: Date.now()
+    };
     setBudgets(prev => [b, ...prev]);
     openBudget(b.id);
   };
@@ -408,6 +449,7 @@ function BudgetsListView({ budgets, setBudgets, onOpen, onCreate }) {
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{b.name}</div>
                 <div style={{ fontSize: 12, color: "#8a8071", marginTop: 2 }}>{b.clientName || "No client name"} · {b.date}</div>
                 <div style={{ marginTop: 10, fontSize: 13, color: "#6B1E23" }}>Base cost: {inr(base)}</div>
+                <span style={{ display: "inline-block", marginTop: 6, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: budgetStatusColor(b.status).bg, color: budgetStatusColor(b.status).fg }}>{b.status || "Lead"}</span>
                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                   <button className="beo-btn beo-btn-ghost" onClick={(e) => { e.stopPropagation(); duplicateBudget(b); }}>Duplicate</button>
                   <button className="beo-btn beo-btn-ghost" style={{ color: "#c9585d" }} onClick={(e) => { e.stopPropagation(); removeBudget(b.id); }}>Delete</button>
@@ -429,6 +471,7 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
   const [newDayDate, setNewDayDate] = useState("");
   const [newEventName, setNewEventName] = useState("");
   const [newEventTime, setNewEventTime] = useState("");
+  const [newNoteText, setNewNoteText] = useState("");
   const migratedRef = useRef(false);
 
   if (!budget) return null;
@@ -497,18 +540,47 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
     updateDays(days.map(d => d.id === activeDay.id ? { ...d, events: d.events.map(e => e.id === activeEvent.id ? { ...e, lines: newLines } : e) } : d));
   };
 
-  const baseCost = days.reduce((s, d) => s + d.events.reduce((s2, e) => s2 + e.lines.reduce((s3, l) => s3 + l.cost * l.qty, 0), 0), 0);
+  const otherExpenses = budget.otherExpenses || [];
+  const addExpense = () => update({ otherExpenses: [...otherExpenses, { id: uid(), label: "", amount: 0 }] });
+  const updateExpense = (id, patch) => update({ otherExpenses: otherExpenses.map(x => x.id === id ? { ...x, ...patch } : x) });
+  const removeExpense = (id) => update({ otherExpenses: otherExpenses.filter(x => x.id !== id) });
+  const expensesTotal = otherExpenses.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+  const advancePayments = budget.advancePayments || [];
+  const addPayment = () => update({ advancePayments: [{ id: uid(), date: new Date().toISOString().slice(0, 10), amount: 0 }, ...advancePayments] });
+  const updatePayment = (id, patch) => update({ advancePayments: advancePayments.map(p => p.id === id ? { ...p, ...patch } : p) });
+  const removePayment = (id) => update({ advancePayments: advancePayments.filter(p => p.id !== id) });
+  const totalReceived = advancePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+  const notes = budget.notes || [];
+  const addNote = () => {
+    if (!newNoteText.trim()) return;
+    update({ notes: [{ id: uid(), date: new Date().toISOString().slice(0, 10), text: newNoteText.trim() }, ...notes] });
+    setNewNoteText("");
+  };
+  const removeNote = (id) => update({ notes: notes.filter(n => n.id !== id) });
+
+  const itemsCost = days.reduce((s, d) => s + d.events.reduce((s2, e) => s2 + e.lines.reduce((s3, l) => s3 + l.cost * l.qty, 0), 0), 0);
+  const baseCost = itemsCost + expensesTotal;
   const profit = Number(budget.profit) || 0;
-  const commissionPct = Number(budget.commissionPercent) || 0;
+  const hotelPct = Number(budget.commissionPercent) || 0;
+  const individualPct = Number(budget.individualCommissionPercent) || 0;
+  const totalPct = hotelPct + individualPct;
   const mode = budget.commissionMode || "final";
-  let finalBudget, commissionAmount;
+  let finalBudget, hotelCommissionAmount, individualCommissionAmount;
   if (mode === "final") {
-    if (commissionPct >= 100) { finalBudget = Infinity; commissionAmount = Infinity; }
-    else { finalBudget = (baseCost + profit) / (1 - commissionPct / 100); commissionAmount = finalBudget * (commissionPct / 100); }
+    if (totalPct >= 100) { finalBudget = Infinity; hotelCommissionAmount = Infinity; individualCommissionAmount = Infinity; }
+    else {
+      finalBudget = (baseCost + profit) / (1 - totalPct / 100);
+      hotelCommissionAmount = finalBudget * (hotelPct / 100);
+      individualCommissionAmount = finalBudget * (individualPct / 100);
+    }
   } else {
-    commissionAmount = baseCost * (commissionPct / 100);
-    finalBudget = baseCost + profit + commissionAmount;
+    hotelCommissionAmount = baseCost * (hotelPct / 100);
+    individualCommissionAmount = baseCost * (individualPct / 100);
+    finalBudget = baseCost + profit + hotelCommissionAmount + individualCommissionAmount;
   }
+  const commissionPct = hotelPct; // kept for any legacy reference below
 
   const filteredCats = categories.map(c => ({ ...c, items: c.items.filter(i => i.name.toLowerCase().includes(search.toLowerCase())) })).filter(c => c.items.length > 0 || !search);
 
@@ -539,6 +611,15 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
         </div>`;
     }).join("");
 
+    const expenseRows = otherExpenses.filter(x => x.label).map(x => `<tr><td style="padding:6px 0;border-bottom:1px solid #f0ece0;font-family:Inter,sans-serif;font-size:12.5px;color:#333;">${x.label}</td><td style="padding:6px 0;border-bottom:1px solid #f0ece0;text-align:right;font-family:Inter,sans-serif;font-size:12.5px;color:#333;">${inr(x.amount)}</td></tr>`).join("");
+    const expensesBlock = expenseRows ? `
+      <div style="margin-bottom:22px;">
+        <div style="background:linear-gradient(135deg, #4A5568, #4A5568dd); color:#FAF6EE; padding:10px 16px; border-radius:8px; font-family:'Cormorant Garamond',serif; font-size:20px; font-weight:700; margin-bottom:10px;">
+          ✦ Other Charges
+        </div>
+        <table style="width:100%;border-collapse:collapse;">${expenseRows}</table>
+      </div>` : "";
+
     printArea.innerHTML = `
       <div style="text-align:center;margin-bottom:6px;">
         <div style="font-family:'Cormorant Garamond',serif;font-size:15px;color:#B8934A;letter-spacing:2px;">${companyName ? companyName.toUpperCase() : "&nbsp;"}</div>
@@ -548,11 +629,12 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
       <div style="font-family:Inter,sans-serif;font-size:13.5px;margin-bottom:2px;text-align:center;"><b>Client:</b> ${budget.clientName || "—"}</div>
       <div style="font-family:Inter,sans-serif;font-size:13.5px;margin-bottom:20px;text-align:center;"><b>Date:</b> ${budget.date}</div>
       ${dayBlocks}
+      ${expensesBlock}
       <div style="background:linear-gradient(135deg, #6B1E23, #8C5A2B); color:#FAF6EE; padding:18px 20px; border-radius:10px; font-family:'Cormorant Garamond',serif; font-size:26px; font-weight:700; text-align:center; margin-top:10px;">
         Total Budget: ${inr(finalBudget)}
       </div>
     `;
-    window.print();
+    window.downloadPdf((budget.clientName || budget.name || "quotation").replace(/[^a-z0-9]/gi, "_"));
   };
 
   return (
@@ -566,6 +648,59 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
       <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
         <input className="beo-input" placeholder="Company name for PDF (optional, blank if none)" value={budget.pdfCompanyName || ""} onChange={e => update({ pdfCompanyName: e.target.value })} style={{ flex: "1 1 260px" }} />
         <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Client Info</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 14 }}>
+          <div>
+            <label style={{ fontSize: 11.5, color: "#8a8071" }}>Client phone</label>
+            <input className="beo-input" value={budget.clientPhone || ""} onChange={e => update({ clientPhone: e.target.value })} style={{ marginTop: 4 }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11.5, color: "#8a8071" }}>Alternate number</label>
+            <input className="beo-input" value={budget.clientAltPhone || ""} onChange={e => update({ clientAltPhone: e.target.value })} style={{ marginTop: 4 }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11.5, color: "#8a8071" }}>Managed by (our team)</label>
+            <input className="beo-input" value={budget.managerName || ""} onChange={e => update({ managerName: e.target.value })} style={{ marginTop: 4 }} />
+          </div>
+        </div>
+        <label style={{ fontSize: 11.5, color: "#8a8071", display: "block", marginBottom: 6 }}>Status</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {BUDGET_STATUSES.map(s => (
+            <button key={s} className="beo-btn" onClick={() => update({ status: s })} style={{ padding: "7px 14px", fontSize: 12.5, borderRadius: 6, background: (budget.status || "Lead") === s ? budgetStatusColor(s).fg : "#F1EADA", color: (budget.status || "Lead") === s ? "#fff" : "#211D17" }}>{s}</button>
+          ))}
+        </div>
+
+        {budget.status === "Converted" && (
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px dashed #E4DCC8" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>Advance Payments Received</div>
+              <button className="beo-btn beo-btn-primary" style={{ fontSize: 12, padding: "6px 10px" }} onClick={addPayment}>＋ Add payment</button>
+            </div>
+            {advancePayments.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5, marginBottom: 10 }}>No payments logged yet.</div> : advancePayments.map(p => (
+              <div key={p.id} style={{ display: "grid", gridTemplateColumns: "140px 1fr 24px", gap: 8, alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA" }}>
+                <input className="beo-input" type="date" value={p.date} onChange={e => updatePayment(p.id, { date: e.target.value })} style={{ padding: "5px 6px", fontSize: 12.5 }} />
+                <input className="beo-input" type="number" placeholder="Amount ₹" value={p.amount} onChange={e => updatePayment(p.id, { amount: Number(e.target.value) || 0 })} style={{ padding: "5px 6px", fontSize: 12.5 }} />
+                <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removePayment(p.id)}>🗑</span>
+              </div>
+            ))}
+            {advancePayments.length > 0 && <div style={{ textAlign: "right", fontSize: 12.5, fontWeight: 700, color: "#2E7D32", marginTop: 8 }}>Total received: {inr(totalReceived)}</div>}
+
+            <div style={{ fontWeight: 700, fontSize: 14, marginTop: 16, marginBottom: 8 }}>Notes</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              <input className="beo-input" placeholder="Add a note…" value={newNoteText} onChange={e => setNewNoteText(e.target.value)} onKeyDown={e => e.key === "Enter" && addNote()} />
+              <button className="beo-btn beo-btn-primary" onClick={addNote}>＋</button>
+            </div>
+            {notes.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5 }}>No notes yet.</div> : notes.map(n => (
+              <div key={n.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+                <div><b style={{ color: "#6B1E23" }}>{n.date}:</b> {n.text}</div>
+                <span style={{ color: "#c98b8e", cursor: "pointer", marginLeft: 10 }} onClick={() => removeNote(n.id)}>🗑</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
@@ -649,14 +784,34 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
         <div className="beo-card" style={{ padding: 20, alignSelf: "start" }}>
           <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 4 }}>Final Budget Calculator</div>
           <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 16 }}>Totals across all days & events. Commission on the final client budget by default.</div>
-          <Row label="Base cost (all items, all days)" value={inr(baseCost)} />
+          <Row label="Items cost (all days)" value={inr(itemsCost)} />
+          <Row label="Other expenses" value={inr(expensesTotal)} />
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Your desired profit (₹)</label>
             <input className="beo-input" type="number" value={budget.profit} onChange={e => update({ profit: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
           </div>
+
+          <div style={{ margin: "14px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <label style={{ fontSize: 12.5, fontWeight: 600 }}>Other expenses</label>
+              <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={addExpense}>＋ Add</button>
+            </div>
+            {otherExpenses.map(x => (
+              <div key={x.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 22px", gap: 6, marginBottom: 6 }}>
+                <input className="beo-input" placeholder="e.g. Transport, GST" value={x.label} onChange={e => updateExpense(x.id, { label: e.target.value })} style={{ padding: "6px 8px", fontSize: 12.5 }} />
+                <input className="beo-input" type="number" placeholder="₹" value={x.amount} onChange={e => updateExpense(x.id, { amount: Number(e.target.value) || 0 })} style={{ padding: "6px 8px", fontSize: 12.5 }} />
+                <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeExpense(x.id)}>×</span>
+              </div>
+            ))}
+          </div>
+
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Hotel commission (%)</label>
             <input className="beo-input" type="number" value={budget.commissionPercent} onChange={e => update({ commissionPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+          </div>
+          <div style={{ margin: "14px 0" }}>
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>Individual commission (%)</label>
+            <input className="beo-input" type="number" value={budget.individualCommissionPercent || 0} onChange={e => update({ individualCommissionPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
           </div>
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600, display: "block", marginBottom: 6 }}>Commission is calculated on</label>
@@ -666,14 +821,15 @@ function BudgetBuilder({ budget, categories, onBack, onChange }) {
             </div>
           </div>
           <div style={{ borderTop: "1px dashed #E4DCC8", margin: "16px 0", paddingTop: 14 }}>
-            <Row label="Base cost" value={inr(baseCost)} />
+            <Row label="Base cost (items + expenses)" value={inr(baseCost)} />
             <Row label="Your profit" value={inr(profit)} />
-            <Row label={`Hotel commission (${commissionPct}%)`} value={(commissionPct >= 100 && mode === "final") ? "—" : inr(commissionAmount)} />
+            <Row label={`Hotel commission (${hotelPct}%)`} value={(totalPct >= 100 && mode === "final") ? "—" : inr(hotelCommissionAmount)} />
+            <Row label={`Individual commission (${individualPct}%)`} value={(totalPct >= 100 && mode === "final") ? "—" : inr(individualCommissionAmount)} />
           </div>
           <div style={{ background: "#6B1E23", borderRadius: 8, padding: "14px 16px" }}>
             <div style={{ fontSize: 12, color: "#E9D9B8" }}>Quote to client</div>
             <div className="beo-serif" style={{ fontSize: 28, fontWeight: 700, color: "#FAF6EE" }}>
-              {(commissionPct >= 100 && mode === "final") ? "Set commission < 100%" : inr(finalBudget)}
+              {(totalPct >= 100 && mode === "final") ? "Set commission < 100%" : inr(finalBudget)}
             </div>
           </div>
         </div>
@@ -1043,7 +1199,7 @@ function HotelDetail({ city, hotel, quotes, onOpenQuote, onBack, onChange }) {
       <div style="font-family:Inter,sans-serif;font-size:14px;margin:16px 0 6px;"><b>Notes</b></div>
       ${noteRows || "<div>None added</div>"}
     `;
-    window.print();
+    window.downloadPdf(hotel.name.replace(/[^a-z0-9]/gi, "_"));
   };
 
   return (
@@ -1311,7 +1467,7 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
         Total Budget: ${cur(finalBudget)}
       </div>
     `;
-    window.print();
+    window.downloadPdf((quote.clientName || quote.name || "quotation").replace(/[^a-z0-9]/gi, "_"));
   };
 
   return (
