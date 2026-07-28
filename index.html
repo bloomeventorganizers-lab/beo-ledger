@@ -67,28 +67,42 @@
     const el = document.getElementById("print-area");
     el.style.display = "block";
     el.style.position = "fixed";
-    el.style.left = "-9999px";
     el.style.top = "0";
+    el.style.left = "50%";
+    el.style.transform = "translateX(-50%)";
+    el.style.zIndex = "99999";
     el.style.width = "760px";
+    el.style.maxWidth = "94vw";
     el.style.background = "#fff";
     el.style.padding = "30px";
+    el.style.boxSizing = "border-box";
+    el.style.boxShadow = "0 0 40px rgba(0,0,0,0.25)";
+    const reset = () => {
+      el.style.display = "none";
+      el.style.position = "";
+      el.style.top = "";
+      el.style.left = "";
+      el.style.transform = "";
+      el.style.zIndex = "";
+      el.style.width = "";
+      el.style.maxWidth = "";
+      el.style.boxShadow = "";
+    };
     const opt = {
       margin: 10,
       filename: (filename || "quotation") + ".pdf",
       image: { type: "jpeg", quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
     };
-    html2pdf().set(opt).from(el).save().then(() => {
-      el.style.display = "none";
-      el.style.position = "";
-      el.style.left = "";
-      el.style.width = "";
-    }).catch((err) => {
-      console.error(err);
-      el.style.display = "none";
-      alert("PDF generation failed: " + err.message);
-    });
+    // Small delay lets the browser finish layout/paint before html2canvas snapshots it
+    setTimeout(() => {
+      html2pdf().set(opt).from(el).save().then(reset).catch((err) => {
+        console.error(err);
+        reset();
+        alert("PDF generation failed: " + err.message);
+      });
+    }, 60);
   };
 </script>
 
@@ -196,7 +210,7 @@ function MainApp({ user }) {
   const [budgets, setBudgets] = useState([]);
   const [cities, setCities] = useState([]);
   const [corpQuotes, setCorpQuotes] = useState([]);
-  const [tab, setTab] = useState(isAdmin ? "inventory" : "hotels");
+  const [tab, setTab] = useState(isAdmin ? "dashboard" : "hotels");
   const [activeBudgetId, setActiveBudgetId] = useState(null);
   const [activeCityId, setActiveCityId] = useState(null);
   const [activeHotelId, setActiveHotelId] = useState(null);
@@ -325,6 +339,7 @@ function MainApp({ user }) {
           </div>
         </div>
         <nav style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {isAdmin && <TabBtn active={tab === "dashboard"} onClick={() => setTab("dashboard")}>Dashboard</TabBtn>}
           {isAdmin && <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>}
           {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
           <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
@@ -333,6 +348,7 @@ function MainApp({ user }) {
         </nav>
       </div>
       <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
+        {isAdmin && tab === "dashboard" && <DashboardView budgets={budgets} onOpen={openBudget} />}
         {isAdmin && tab === "inventory" && <InventoryView categories={categories} setCategories={setCategories} />}
         {isAdmin && tab === "budgets" && <BudgetsListView budgets={budgets} setBudgets={setBudgets} onOpen={openBudget} onCreate={createBudget} />}
         {isAdmin && tab === "builder" && activeBudgetId && (
