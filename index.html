@@ -232,17 +232,78 @@ const waLinkWithText = (phone, text) => {
 const photoUrlOf = (p) => (p && typeof p === "object" ? p.url : p);
 
 function App() {
+  const shareId = new URLSearchParams(window.location.search).get("share");
   const [user, setUser] = useState(undefined);
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
+    if (shareId) return;
     const unsub = auth.onAuthStateChanged(u => setUser(u || null));
     return unsub;
   }, []);
 
+  if (shareId) return <PublicQuoteView shareId={shareId} />;
   if (user === undefined) return <div style={{ padding: 40, color: "#6b1e23" }}>Checking sign-in…</div>;
   if (user === null) return <LoginScreen onError={setAuthError} error={authError} />;
   return <MainApp user={user} />;
+}
+
+function PublicQuoteView({ shareId }) {
+  const [data, setData] = useState(undefined);
+
+  useEffect(() => {
+    db.collection("publicQuotes").doc(shareId).get()
+      .then(snap => setData(snap.exists ? snap.data() : null))
+      .catch(() => setData(null));
+  }, [shareId]);
+
+  if (data === undefined) return <div style={{ padding: 40, textAlign: "center", color: "#6b1e23" }}>Loading quotation…</div>;
+  if (data === null) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This quotation link is invalid or no longer available.</div>;
+
+  return (
+    <div style={{ maxWidth: 700, margin: "0 auto", padding: "40px 24px" }}>
+      {data.companyName && <div className="beo-serif" style={{ textAlign: "center", fontSize: 15, color: "#B8934A", letterSpacing: 2 }}>{data.companyName.toUpperCase()}</div>}
+      <div className="beo-serif" style={{ textAlign: "center", fontSize: 30, fontWeight: 700, color: "#6B1E23" }}>{data.title}</div>
+      <div style={{ textAlign: "center", fontSize: 13, color: "#8a8071", marginBottom: 18 }}>✦ ✦ ✦</div>
+      {data.client && <div style={{ textAlign: "center", fontSize: 13.5, marginBottom: 2 }}><b>Client:</b> {data.client}</div>}
+      {data.date && <div style={{ textAlign: "center", fontSize: 13.5, marginBottom: 24 }}><b>Date:</b> {data.date}</div>}
+
+      {(data.sections || []).map((s, i) => (
+        <div key={i} style={{ marginBottom: 20 }}>
+          <div style={{ background: `rgb(${s.color.join(",")})`, color: "#fff", padding: "10px 16px", borderRadius: 8, fontWeight: 700, fontSize: 17, marginBottom: 8 }} className="beo-serif">{s.title}</div>
+          {(s.subsections || []).map((sub, j) => (
+            <div key={j} style={{ marginBottom: 12 }}>
+              {sub.title && <div className="beo-serif" style={{ fontWeight: 700, color: `rgb(${s.color.join(",")})`, marginBottom: 4, fontSize: 15 }}>{sub.title}</div>}
+              {(sub.items || []).length === 0 ? (
+                <div style={{ color: "#a39a89", fontSize: 12.5 }}>No items</div>
+              ) : sub.items.map((item, k) => (
+                <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid #f0ece0", fontSize: 13.5 }}>
+                  <span>{item.name}</span><span>{item.qty}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {(data.totalRows || []).length > 0 && (
+        <div style={{ margin: "14px 0", borderTop: "1px dashed #E4DCC8", paddingTop: 10 }}>
+          {data.totalRows.map((r, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13.5, color: r.color ? `rgb(${r.color.join(",")})` : "#333" }}>
+              <span>{r.label}</span><span>{r.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {data.grandTotalLabel && (
+        <div style={{ background: "linear-gradient(135deg, #6B1E23, #8C5A2B)", color: "#fff", padding: "18px 20px", borderRadius: 10, textAlign: "center", marginTop: 12 }}>
+          <div style={{ fontSize: 12, color: "#E9D9B8" }}>{data.grandTotalLabel}</div>
+          <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700 }}>{data.grandTotal}</div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function LoginScreen({ onError, error }) {
@@ -788,6 +849,7 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
   const [newEventName, setNewEventName] = useState("");
   const [newEventTime, setNewEventTime] = useState("");
   const [newNoteText, setNewNoteText] = useState("");
+  const [sharing, setSharing] = useState(false);
   const migratedRef = useRef(false);
 
   if (!budget) return null;
@@ -921,7 +983,7 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
     return m.map(h => parseInt(h, 16));
   };
 
-  const exportQuotation = () => {
+  const buildQuoteConfig = () => {
     const companyName = budget.pdfCompanyName || "";
     const sections = days.map((d, di) => ({
       title: `✦ ${d.label}${d.date ? ` — ${d.date}` : ""}`,
@@ -947,8 +1009,7 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
       if (gstPercent > 0) totalRows.push({ label: `GST (${gstPercent}%)`, value: inr(gstAmount) });
     }
 
-    update({ quoteSentAt: Date.now() });
-    window.generatePdf({
+    return {
       companyName,
       title: budget.name || "Event Quotation",
       client: budget.clientName || "—",
@@ -956,9 +1017,30 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
       sections,
       totalRows,
       grandTotalLabel: "Total Budget",
-      grandTotal: (totalPct >= 100 && mode === "final") ? "—" : inr(grandTotal),
-      filename: (budget.clientName || budget.name || "quotation").replace(/[^a-z0-9]/gi, "_")
-    });
+      grandTotal: (totalPct >= 100 && mode === "final") ? "—" : inr(grandTotal)
+    };
+  };
+
+  const getOrCreateShareLink = async () => {
+    setSharing(true);
+    const id = budget.shareId || uid();
+    const config = buildQuoteConfig();
+    try {
+      await db.collection("publicQuotes").doc(id).set({ ...config, updatedAt: Date.now() });
+      if (!budget.shareId) update({ shareId: id });
+      setSharing(false);
+      return `${window.location.origin}${window.location.pathname}?share=${id}`;
+    } catch (e) {
+      setSharing(false);
+      alert("Could not create share link: " + e.message);
+      return null;
+    }
+  };
+
+  const exportQuotation = () => {
+    const config = buildQuoteConfig();
+    update({ quoteSentAt: Date.now() });
+    window.generatePdf({ ...config, filename: (budget.clientName || budget.name || "quotation").replace(/[^a-z0-9]/gi, "_") });
   };
 
   return (
@@ -972,15 +1054,23 @@ function BudgetBuilder({ budget, categories, recentItems, setRecentItems, bundle
       <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
         <input className="beo-input" placeholder="Company name for PDF (optional, blank if none)" value={budget.pdfCompanyName || ""} onChange={e => update({ pdfCompanyName: e.target.value })} style={{ flex: "1 1 260px" }} />
         <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
-        <a
-          href={waLinkWithText(budget.clientPhone, `Hi ${budget.clientName || ""}, please find your event quotation attached. Total: ${(totalPct >= 100 && mode === "final") ? "" : inr(grandTotal)}. Let us know if you have any questions!\n\n— ${budget.pdfCompanyName || "The Executive Events"}`)}
-          target="_blank" rel="noreferrer"
+        <button
           className="beo-btn"
-          style={{ background: "#25D366", color: "#fff", padding: "9px 16px", fontSize: 14, fontWeight: 600, textDecoration: "none" }}
-          title="Opens WhatsApp with a ready message — attach the downloaded PDF manually"
-        >💬 Send via WhatsApp</a>
+          disabled={sharing}
+          style={{ background: "#25D366", color: "#fff", padding: "9px 16px", fontSize: 14, fontWeight: 600, opacity: sharing ? 0.6 : 1 }}
+          title="Generates a shareable link and opens WhatsApp with it pre-filled"
+          onClick={async () => {
+            const url = await getOrCreateShareLink();
+            if (!url) return;
+            const msg = `Hi ${budget.clientName || ""}, please find your event quotation here: ${url}\n\nTotal: ${(totalPct >= 100 && mode === "final") ? "" : inr(grandTotal)}. Let us know if you have any questions!\n\n— ${budget.pdfCompanyName || "The Executive Events"}`;
+            window.open(waLinkWithText(budget.clientPhone, msg), "_blank");
+          }}
+        >{sharing ? "Generating link…" : "💬 Send via WhatsApp"}</button>
+        {budget.shareId && (
+          <button className="beo-btn beo-btn-ghost" onClick={async () => { const url = await getOrCreateShareLink(); if (url) { navigator.clipboard.writeText(url); alert("Link copied to clipboard:\n" + url); } }}>🔗 Copy Link</button>
+        )}
       </div>
-      <div style={{ fontSize: 11, color: "#a39a89", marginTop: -12, marginBottom: 16 }}>Tip: export the PDF first, then use "Send via WhatsApp" and attach the downloaded file manually — WhatsApp links can't auto-attach files.</div>
+      <div style={{ fontSize: 11, color: "#a39a89", marginTop: -12, marginBottom: 16 }}>"Send via WhatsApp" now sends a clickable link — no manual PDF attaching needed. The link updates automatically each time you send.</div>
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Client Info</div>
@@ -1883,6 +1973,7 @@ function QuotesListView({ quotes, setQuotes, onOpen, onCreate, cities }) {
 }
 
 function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
+  const [sharing, setSharing] = useState(false);
   if (!quote) return null;
   const update = (patch) => onChange({ ...quote, ...patch });
 
@@ -1919,22 +2010,42 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
   const currency = quote.currency || "₹";
   const cur = (n) => fmtCurrency(n, currency);
 
-  const exportQuotation = () => {
+  const buildQuoteConfig = () => {
     const items = [];
     if (rooms.qty) items.push({ name: `Rooms (${rooms.qty} rooms × ${rooms.nights} night${rooms.nights == 1 ? "" : "s"})`, qty: "" });
     if (banquet.rate) items.push({ name: `Banquet${banquet.mode === "perPax" ? ` (${banquet.pax} pax)` : ""}`, qty: "" });
     extraLines.filter(l => l.label).forEach(l => items.push({ name: l.label, qty: l.qty }));
 
-    window.generatePdf({
+    return {
       title: "The Executive Events",
       client: quote.clientName || "—",
       date: `${quote.date}${hotel ? "  ·  Venue: " + hotel.name + (city ? " · " + city.name : "") : ""}`,
       sections: [{ title: "Corporate Event Quotation", color: [107, 30, 35], subsections: [{ title: "", items }] }],
       totalRows: [],
       grandTotalLabel: "Total Budget",
-      grandTotal: cur(finalBudget),
-      filename: (quote.clientName || quote.name || "quotation").replace(/[^a-z0-9]/gi, "_")
-    });
+      grandTotal: cur(finalBudget)
+    };
+  };
+
+  const getOrCreateShareLink = async () => {
+    setSharing(true);
+    const id = quote.shareId || uid();
+    const config = buildQuoteConfig();
+    try {
+      await db.collection("publicQuotes").doc(id).set({ ...config, updatedAt: Date.now() });
+      if (!quote.shareId) update({ shareId: id });
+      setSharing(false);
+      return `${window.location.origin}${window.location.pathname}?share=${id}`;
+    } catch (e) {
+      setSharing(false);
+      alert("Could not create share link: " + e.message);
+      return null;
+    }
+  };
+
+  const exportQuotation = () => {
+    const config = buildQuoteConfig();
+    window.generatePdf({ ...config, filename: (quote.clientName || quote.name || "quotation").replace(/[^a-z0-9]/gi, "_") });
   };
 
   return (
@@ -1951,15 +2062,23 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
       </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
         <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
-        <a
-          href={waLinkWithText(quote.clientPhone, `Hi ${quote.clientName || ""}, please find your corporate event quotation attached. Total: ${(commissionPct >= 100 && mode === "final") ? "" : cur(finalBudget)}. Let us know if you have any questions!\n\n— The Executive Events`)}
-          target="_blank" rel="noreferrer"
+        <button
           className="beo-btn"
-          style={{ background: "#25D366", color: "#fff", padding: "9px 16px", fontSize: 14, fontWeight: 600, textDecoration: "none" }}
-          title="Opens WhatsApp with a ready message — attach the downloaded PDF manually"
-        >💬 Send via WhatsApp</a>
+          disabled={sharing}
+          style={{ background: "#25D366", color: "#fff", padding: "9px 16px", fontSize: 14, fontWeight: 600, opacity: sharing ? 0.6 : 1 }}
+          title="Generates a shareable link and opens WhatsApp with it pre-filled"
+          onClick={async () => {
+            const url = await getOrCreateShareLink();
+            if (!url) return;
+            const msg = `Hi ${quote.clientName || ""}, please find your corporate event quotation here: ${url}\n\nTotal: ${(commissionPct >= 100 && mode === "final") ? "" : cur(finalBudget)}. Let us know if you have any questions!\n\n— The Executive Events`;
+            window.open(waLinkWithText(quote.clientPhone, msg), "_blank");
+          }}
+        >{sharing ? "Generating link…" : "💬 Send via WhatsApp"}</button>
+        {quote.shareId && (
+          <button className="beo-btn beo-btn-ghost" onClick={async () => { const url = await getOrCreateShareLink(); if (url) { navigator.clipboard.writeText(url); alert("Link copied to clipboard:\n" + url); } }}>🔗 Copy Link</button>
+        )}
       </div>
-      <div style={{ fontSize: 11, color: "#a39a89", marginTop: -12, marginBottom: 16 }}>Tip: export the PDF first, then use "Send via WhatsApp" and attach the downloaded file manually.</div>
+      <div style={{ fontSize: 11, color: "#a39a89", marginTop: -12, marginBottom: 16 }}>"Send via WhatsApp" now sends a clickable link — no manual PDF attaching needed.</div>
 
 
       <div className="builder-col">
