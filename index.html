@@ -75,74 +75,111 @@
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 15;
-    let y = 20;
+    const margin = 16;
+    let y = 24;
+
+    const CREAM = [253, 251, 243];
+    const primary = config.themePrimary || [107, 30, 35];
+    const accent = config.themeAccent || [184, 147, 74];
+
+    const paintPage = () => {
+      doc.setFillColor(CREAM[0], CREAM[1], CREAM[2]);
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
+      // Decorative corner brackets, top-left and bottom-right
+      doc.setDrawColor(accent[0], accent[1], accent[2]);
+      doc.setLineWidth(0.5);
+      const bl = 8;
+      doc.line(8, 8, 8 + bl, 8); doc.line(8, 8, 8, 8 + bl);
+      doc.line(pageWidth - 8, pageHeight - 8, pageWidth - 8 - bl, pageHeight - 8);
+      doc.line(pageWidth - 8, pageHeight - 8, pageWidth - 8, pageHeight - 8 - bl);
+    };
+    paintPage();
 
     const checkPageBreak = (needed) => {
-      if (y + needed > pageHeight - 15) { doc.addPage(); y = 20; }
+      if (y + needed > pageHeight - 20) { doc.addPage(); paintPage(); y = 24; }
     };
     const wrapText = (text, maxWidth, fontSize) => {
       doc.setFontSize(fontSize);
       return doc.splitTextToSize(String(text), maxWidth);
     };
-
-    const primary = config.themePrimary || [107, 30, 35];
-    const accent = config.themeAccent || [184, 147, 74];
+    const dividerRow = () => {
+      doc.setFont("times", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(accent[0], accent[1], accent[2]);
+      doc.text("✦    ✦    ✦", pageWidth / 2, y, { align: "center" });
+      y += 8;
+    };
 
     if (config.companyName) {
       doc.setFont("times", "italic");
       doc.setFontSize(11);
       doc.setTextColor(accent[0], accent[1], accent[2]);
       doc.text(config.companyName.toUpperCase(), pageWidth / 2, y, { align: "center" });
-      y += 8;
+      y += 9;
     }
     doc.setFont("times", "bold");
-    doc.setFontSize(22);
+    doc.setFontSize(25);
     doc.setTextColor(primary[0], primary[1], primary[2]);
     doc.text(config.title || "Event Quotation", pageWidth / 2, y, { align: "center" });
-    y += 9;
+    y += 8;
+    dividerRow();
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10.5);
-    doc.setTextColor(60, 60, 60);
+    doc.setTextColor(70, 65, 60);
     if (config.client) { doc.text(`Client: ${config.client}`, pageWidth / 2, y, { align: "center" }); y += 5.5; }
     if (config.date) { doc.text(`Date: ${config.date}`, pageWidth / 2, y, { align: "center" }); y += 5.5; }
-    y += 4;
+    y += 6;
 
     (config.sections || []).forEach(section => {
-      checkPageBreak(14);
+      checkPageBreak(15);
       const [r, g, b] = section.color || [107, 30, 35];
       doc.setFillColor(r, g, b);
-      doc.roundedRect(margin, y, pageWidth - margin * 2, 9, 1.5, 1.5, "F");
+      doc.roundedRect(margin, y, pageWidth - margin * 2, 10, 1.8, 1.8, "F");
+      doc.setDrawColor(accent[0], accent[1], accent[2]);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(margin, y, pageWidth - margin * 2, 10, 1.8, 1.8, "S");
       doc.setTextColor(255, 255, 255);
       doc.setFont("times", "bold");
-      doc.setFontSize(12.5);
-      doc.text(section.title, margin + 4, y + 6.2);
-      y += 13;
+      doc.setFontSize(13);
+      doc.text(section.title, margin + 5, y + 6.8);
+      y += 15;
 
       (section.subsections || []).forEach(sub => {
         checkPageBreak(11);
-        doc.setFont("times", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(r, g, b);
-        doc.text(sub.title, margin + 2, y);
-        y += 5.5;
+        if (sub.title) {
+          doc.setFont("times", "bold");
+          doc.setFontSize(11.5);
+          doc.setTextColor(r, g, b);
+          doc.text(`◆ ${sub.title}`, margin + 2, y);
+          y += 6;
+        }
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9.5);
-        doc.setTextColor(40, 40, 40);
         if (!sub.items || sub.items.length === 0) {
           doc.setTextColor(150, 145, 135);
           doc.text("No items added", margin + 4, y);
           y += 5.5;
         } else {
-          sub.items.forEach(item => {
-            checkPageBreak(6);
-            const lines = wrapText(item.name, pageWidth - margin * 2 - 24, 9.5);
-            doc.setTextColor(40, 40, 40);
+          const stripeColor = [
+            Math.round(CREAM[0] * 0.94 + accent[0] * 0.06),
+            Math.round(CREAM[1] * 0.94 + accent[1] * 0.06),
+            Math.round(CREAM[2] * 0.94 + accent[2] * 0.06)
+          ];
+          sub.items.forEach((item, idx) => {
+            const lines = wrapText(item.name, pageWidth - margin * 2 - 28, 9.5);
+            const rowHeight = 5.4 * lines.length;
+            checkPageBreak(rowHeight + 1);
+            if (idx % 2 === 0) {
+              doc.setFillColor(stripeColor[0], stripeColor[1], stripeColor[2]);
+              doc.rect(margin, y - 4, pageWidth - margin * 2, rowHeight, "F");
+            }
+            doc.setTextColor(45, 40, 35);
             doc.text(lines, margin + 4, y);
             doc.text(String(item.qty), pageWidth - margin - 4, y, { align: "right" });
-            y += 5.2 * lines.length;
-            doc.setDrawColor(230, 225, 210);
+            y += rowHeight;
+            doc.setDrawColor(accent[0], accent[1], accent[2]);
+            doc.setLineWidth(0.15);
             doc.line(margin, y - 2, pageWidth - margin, y - 2);
           });
         }
@@ -151,11 +188,16 @@
     });
 
     if (config.totalRows && config.totalRows.length) {
-      checkPageBreak(8 * config.totalRows.length + 6);
+      checkPageBreak(8 * config.totalRows.length + 8);
+      y += 2;
+      doc.setDrawColor(accent[0], accent[1], accent[2]);
+      doc.setLineWidth(0.3);
+      doc.line(margin, y, pageWidth - margin, y);
+      y += 7;
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       config.totalRows.forEach(row => {
-        doc.setTextColor(row.color ? row.color[0] : 60, row.color ? row.color[1] : 60, row.color ? row.color[2] : 60);
+        doc.setTextColor(row.color ? row.color[0] : 70, row.color ? row.color[1] : 65, row.color ? row.color[2] : 60);
         doc.text(row.label, margin, y);
         doc.text(row.value, pageWidth - margin, y, { align: "right" });
         y += 6;
@@ -164,15 +206,36 @@
     }
 
     if (config.grandTotalLabel) {
-      checkPageBreak(20);
+      checkPageBreak(24);
       doc.setFillColor(primary[0], primary[1], primary[2]);
-      doc.roundedRect(margin, y, pageWidth - margin * 2, 16, 2, 2, "F");
+      doc.roundedRect(margin, y, pageWidth - margin * 2, 18, 2.5, 2.5, "F");
+      doc.setDrawColor(accent[0], accent[1], accent[2]);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(margin, y, pageWidth - margin * 2, 18, 2.5, 2.5, "S");
+      doc.setTextColor(accent[0] + 60 > 255 ? 255 : accent[0] + 60, accent[1] + 60 > 255 ? 255 : accent[1] + 60, accent[2] + 40 > 255 ? 255 : accent[2] + 40);
+      doc.setFont("times", "italic");
+      doc.setFontSize(10.5);
+      doc.text(config.grandTotalLabel, margin + 6, y + 7);
       doc.setTextColor(255, 255, 255);
       doc.setFont("times", "bold");
-      doc.setFontSize(13);
-      doc.text(config.grandTotalLabel, margin + 5, y + 6.5);
-      doc.setFontSize(17);
-      doc.text(config.grandTotal || "", pageWidth - margin - 5, y + 11.5, { align: "right" });
+      doc.setFontSize(19);
+      doc.text(config.grandTotal || "", pageWidth - margin - 6, y + 13, { align: "right" });
+      y += 24;
+      checkPageBreak(14);
+      doc.setFont("times", "italic");
+      doc.setFontSize(9.5);
+      doc.setTextColor(accent[0], accent[1], accent[2]);
+      doc.text("✦ Thank you for the opportunity to be part of your celebration ✦", pageWidth / 2, y, { align: "center" });
+    }
+
+    // Footer: page numbers on every page
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(150, 145, 135);
+      doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" });
     }
 
     doc.save((config.filename || "quotation") + ".pdf");
