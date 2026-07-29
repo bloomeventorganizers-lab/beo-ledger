@@ -251,36 +251,37 @@
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 16;
+    const margin = 18;
     const CREAM = [253, 251, 243];
     const PRIMARY = [107, 30, 35];
     const ACCENT = [184, 147, 74];
     const cs = companySettings || {};
     const inr = (n) => "Rs. " + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
     let pageNum = 1;
+    const loadErrors = [];
 
-    const loadImageDataUrl = async (url) => {
+    const loadImageDataUrl = async (url, label) => {
       if (!url) return null;
       try {
         const res = await fetch(url);
+        if (!res.ok) { loadErrors.push(`${label}: server returned ${res.status}`); return null; }
         const blob = await res.blob();
-        return await new Promise((resolve, reject) => {
+        return await new Promise((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result);
-          reader.onerror = () => resolve(null);
+          reader.onerror = () => { loadErrors.push(`${label}: could not read file`); resolve(null); };
           reader.readAsDataURL(blob);
         });
-      } catch (e) { return null; }
+      } catch (e) {
+        loadErrors.push(`${label}: ${e.message}`);
+        return null;
+      }
     };
-    const imgFormat = (dataUrl) => {
-      if (!dataUrl) return "JPEG";
-      if (dataUrl.indexOf("data:image/png") === 0) return "PNG";
-      return "JPEG";
-    };
-    const safeAddImage = (dataUrl, x, y, w, h) => {
+    const imgFormat = (dataUrl) => (dataUrl && dataUrl.indexOf("data:image/png") === 0) ? "PNG" : "JPEG";
+    const safeAddImage = (dataUrl, x, y2, w, h) => {
       if (!dataUrl) return false;
-      try { doc.addImage(dataUrl, imgFormat(dataUrl), x, y, w, h, undefined, "FAST"); return true; }
-      catch (e) { return false; }
+      try { doc.addImage(dataUrl, imgFormat(dataUrl), x, y2, w, h, undefined, "FAST"); return true; }
+      catch (e) { loadErrors.push("Could not place image: " + e.message); return false; }
     };
 
     const paintPage = () => {
@@ -298,343 +299,212 @@
       doc.setTextColor(150, 145, 135);
       doc.text(`Page ${pageNum}`, pageWidth / 2, pageHeight - 10, { align: "center" });
     };
-    const newPage = () => { footer(); doc.addPage(); pageNum++; paintPage(); };
-    let y = 24;
-    const checkPageBreak = (needed) => { if (y + needed > pageHeight - 20) newPage(); };
+    const newPage = () => { footer(); doc.addPage(); pageNum++; paintPage(); y = margin + 6; };
+    let y = margin + 6;
+    const checkPageBreak = (needed) => { if (y + needed > pageHeight - 18) newPage(); };
 
-    const pageHeaderBar = (logoDataUrl) => {
-      y = 20;
-      if (logoDataUrl && safeAddImage(logoDataUrl, pageWidth / 2 - 8, 8, 16, 16)) { y = 32; }
-      else {
-        doc.setFont("times", "bold"); doc.setFontSize(12);
-        doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
-        doc.text(cs.companyName || "Company Name", pageWidth / 2, 16, { align: "center" });
-        y = 26;
-      }
-    };
-    const sectionTitle = (text, subtitle) => {
-      checkPageBreak(20);
-      doc.setFont("times", "bold"); doc.setFontSize(16);
-      doc.setTextColor(35, 32, 28);
+    const sectionTitle = (text) => {
+      checkPageBreak(18);
+      doc.setFont("times", "bold"); doc.setFontSize(15);
+      doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
       doc.text(text.toUpperCase(), pageWidth / 2, y, { align: "center" });
-      y += 6;
-      if (subtitle) {
-        doc.setFont("times", "italic"); doc.setFontSize(10);
-        doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-        doc.text(subtitle, pageWidth / 2, y, { align: "center" });
-        y += 6;
-      }
+      y += 5;
       doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
       doc.setLineWidth(0.3);
-      doc.line(pageWidth / 2 - 28, y, pageWidth / 2 + 28, y);
-      y += 10;
-    };
-    const bodyText = (text, fontSize) => {
-      doc.setFont("helvetica", "normal"); doc.setFontSize(fontSize || 10.5);
-      doc.setTextColor(55, 50, 45);
-      const lines = doc.splitTextToSize(String(text), pageWidth - margin * 2);
-      lines.forEach(line => { checkPageBreak(6); doc.text(line, margin, y); y += 5.5; });
-      y += 4;
-    };
-    const bulletList = (items, renderer) => {
-      items.forEach(item => {
-        checkPageBreak(7);
-        doc.setFont("times", "bold"); doc.setFontSize(10.5);
-        doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-        doc.text("•", margin, y);
-        renderer(item, margin + 6, y);
-        y += 6.5;
-      });
+      doc.line(pageWidth / 2 - 26, y, pageWidth / 2 + 26, y);
+      y += 9;
     };
 
-    // Preload all images up front
-    const logoDataUrl = await loadImageDataUrl(cs.logoUrl);
-    const heroDataUrl = await loadImageDataUrl(proposal.heroImage);
-    const venuePhotos = [];
-    for (const p of (proposal.venuePhotos || [])) venuePhotos.push({ ...p, dataUrl: await loadImageDataUrl(p.url) });
-    const decorPhotos = [];
-    for (const p of (proposal.decorPhotos || [])) decorPhotos.push({ ...p, dataUrl: await loadImageDataUrl(p.url) });
+    const logoDataUrl = await loadImageDataUrl(cs.logoUrl, "Company logo");
 
-    // ===== COVER PAGE =====
+    // ===== PAGE 1: Logo, Company, Client Details, Legacy =====
     paintPage();
     y = 22;
+    if (logoDataUrl && safeAddImage(logoDataUrl, pageWidth / 2 - 15, y, 30, 30)) y += 36;
+    doc.setFont("times", "bold"); doc.setFontSize(20);
+    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.text(cs.companyName || "Your Company", pageWidth / 2, y, { align: "center" });
+    y += 7;
+    if (cs.tagline) {
+      doc.setFont("times", "italic"); doc.setFontSize(11);
+      doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+      doc.text(cs.tagline, pageWidth / 2, y, { align: "center" });
+      y += 9;
+    }
     doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
     doc.setLineWidth(0.4);
     doc.line(pageWidth / 2 - 30, y, pageWidth / 2 + 30, y);
     y += 10;
-    if (logoDataUrl && safeAddImage(logoDataUrl, pageWidth / 2 - 12, y, 24, 24)) y += 30;
-    doc.setFont("times", "bold"); doc.setFontSize(24);
-    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
-    doc.text(cs.companyName || "Your Company", pageWidth / 2, y, { align: "center" });
-    y += 8;
-    if (cs.tagline) {
-      doc.setFont("times", "italic"); doc.setFontSize(12);
-      doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-      doc.text(cs.tagline, pageWidth / 2, y, { align: "center" });
-      y += 10;
-    }
-    if (heroDataUrl && safeAddImage(heroDataUrl, margin, y, pageWidth - margin * 2, 75)) y += 85;
-    doc.setFont("times", "bold"); doc.setFontSize(14);
+    doc.setFont("times", "bold"); doc.setFontSize(13);
     doc.setTextColor(40, 38, 33);
     doc.text((proposal.title || "Exclusive Wedding Proposal").toUpperCase(), pageWidth / 2, y, { align: "center" });
-    y += 14;
-    checkPageBreak(36);
-    const boxH = 32;
+    y += 12;
+
+    const details = [
+      ["Bride", proposal.brideNam || "—", "Groom", proposal.groomName || "—"],
+      ["Wedding Date", proposal.weddingDate || "—", "Venue", proposal.venueName || "—"],
+      ["Proposal Date", proposal.proposalDate || "—", "Contact", proposal.clientContact || "—"]
+    ];
+    const boxH = 10 * details.length + 6;
     doc.setFillColor(250, 235, 225);
     doc.roundedRect(margin, y, pageWidth - margin * 2, boxH, 2, 2, "F");
+    let rowY = y + 8;
     const colX1 = margin + 8, colX2 = pageWidth / 2 + 6;
-    const rowY = y + 9;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
-    doc.setTextColor(150, 120, 80);
-    doc.text("BRIDE", colX1, rowY); doc.text("GROOM", colX2, rowY);
-    doc.setFont("times", "italic"); doc.setFontSize(11);
-    doc.setTextColor(50, 45, 40);
-    doc.text(proposal.brideNam || "—", colX1, rowY + 6); doc.text(proposal.groomName || "—", colX2, rowY + 6);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
-    doc.setTextColor(150, 120, 80);
-    doc.text("WEDDING DATE", colX1, rowY + 14); doc.text("VENUE", colX2, rowY + 14);
-    doc.setFont("times", "italic"); doc.setFontSize(11);
-    doc.setTextColor(50, 45, 40);
-    doc.text(proposal.weddingDate || "—", colX1, rowY + 20); doc.text(proposal.venueName || "—", colX2, rowY + 20);
-    y += boxH + 10;
+    details.forEach(([l1, v1, l2, v2]) => {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.setTextColor(150, 120, 80);
+      doc.text(l1.toUpperCase(), colX1, rowY);
+      doc.text(l2.toUpperCase(), colX2, rowY);
+      doc.setFont("times", "italic"); doc.setFontSize(11);
+      doc.setTextColor(50, 45, 40);
+      doc.text(v1, colX1, rowY + 5.5);
+      doc.text(v2, colX2, rowY + 5.5);
+      rowY += 10;
+    });
+    y += boxH + 12;
 
-    // ===== LEGACY PAGE =====
-    newPage();
-    pageHeaderBar(logoDataUrl);
     sectionTitle("Our Legacy & Philosophy");
-    bodyText(proposal.legacyText || cs.legacyText || "We are deeply honoured that you have chosen us to be part of your most sacred journey. This proposal has been crafted not merely as a document, but as a promise that every detail of your celebration shall reflect timeless grace, woven together with the refinement of a truly elevated experience.");
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    doc.setTextColor(55, 50, 45);
+    const legacyLines = doc.splitTextToSize(
+      proposal.legacyText || cs.legacyText || "We are deeply honoured that you have chosen us to be part of your most sacred journey. This proposal has been crafted not merely as a document, but as a promise that every detail of your celebration shall reflect timeless grace, woven together with the refinement of a truly elevated experience.",
+      pageWidth - margin * 2
+    );
+    legacyLines.forEach(line => { checkPageBreak(5.5); doc.text(line, margin, y); y += 5; });
+    y += 4;
     if ((proposal.legacyHighlights || []).length > 0) {
-      y += 4;
-      bulletList(proposal.legacyHighlights, (h, x, yy) => {
+      proposal.legacyHighlights.forEach(h => {
+        checkPageBreak(6);
+        doc.setFont("times", "bold"); doc.setFontSize(10);
+        doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+        doc.text("•", margin, y);
         doc.setFont("helvetica", "normal"); doc.setFontSize(10);
         doc.setTextColor(55, 50, 45);
-        doc.text(h, x, yy);
+        doc.text(h, margin + 5, y);
+        y += 6;
       });
     }
 
-    // ===== VENUE PAGE =====
-    if (proposal.venueDescription || venuePhotos.length > 0 || (proposal.venueFacilities || []).length > 0) {
+    // ===== PAGE 2+: BUDGET & QUOTATION (table, repeats header across pages) =====
+    if (linkedBudget) {
       newPage();
-      pageHeaderBar(logoDataUrl);
-      sectionTitle(proposal.venueName || "Venue");
-      if (proposal.venueDescription) bodyText(proposal.venueDescription);
-      if (venuePhotos.length > 0) {
-        const cols = 2, gap = 6, imgW = (pageWidth - margin * 2 - gap) / cols, imgH = 55;
-        for (let i = 0; i < venuePhotos.length; i += cols) {
-          checkPageBreak(imgH + 12);
-          for (let c = 0; c < cols; c++) {
-            const p = venuePhotos[i + c];
-            if (!p) continue;
-            const x = margin + c * (imgW + gap);
-            if (safeAddImage(p.dataUrl, x, y, imgW, imgH)) {
-              if (p.caption) {
-                doc.setFont("times", "italic"); doc.setFontSize(8.5);
-                doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-                doc.text(p.caption, x + imgW / 2, y + imgH + 4, { align: "center" });
-              }
-            }
-          }
-          y += imgH + 10;
-        }
-      }
-      if ((proposal.venueFacilities || []).length > 0) {
-        checkPageBreak(10);
-        doc.setFont("times", "bold"); doc.setFontSize(11);
-        doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
-        doc.text("Facilities Included", margin, y);
-        y += 7;
-        bulletList(proposal.venueFacilities, (f, x, yy) => {
-          doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
-          doc.setTextColor(55, 50, 45);
-          doc.text(`${f.label}${f.detail ? " — " + f.detail : ""}`, x, yy);
-        });
-      }
-    }
+      y = margin + 6;
+      sectionTitle("Budget & Quotation");
 
-    // ===== DECOR VISION PAGE =====
-    if (proposal.decorDescription || decorPhotos.length > 0 || proposal.decorThemeName) {
-      newPage();
-      pageHeaderBar(logoDataUrl);
-      sectionTitle(proposal.decorThemeName ? `Decor Vision — ${proposal.decorThemeName}` : "Decor Vision");
-      if (proposal.decorDescription) bodyText(proposal.decorDescription);
-      if (decorPhotos.length > 0) {
-        const cols = 2, gap = 6, imgW = (pageWidth - margin * 2 - gap) / cols, imgH = 55;
-        for (let i = 0; i < decorPhotos.length; i += cols) {
-          checkPageBreak(imgH + 12);
-          for (let c = 0; c < cols; c++) {
-            const p = decorPhotos[i + c];
-            if (!p) continue;
-            const x = margin + c * (imgW + gap);
-            if (safeAddImage(p.dataUrl, x, y, imgW, imgH) && p.caption) {
-              doc.setFont("times", "italic"); doc.setFontSize(8.5);
-              doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-              doc.text(p.caption, x + imgW / 2, y + imgH + 4, { align: "center" });
-            }
-          }
-          y += imgH + 10;
-        }
-      }
-    }
+      const drawTableHeader = () => {
+        checkPageBreak(12);
+        doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+        doc.rect(margin, y, pageWidth - margin * 2, 9, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("times", "bold"); doc.setFontSize(10.5);
+        doc.text("ITEM / SERVICE", margin + 4, y + 6.2);
+        doc.text("QTY", pageWidth - margin - 4, y + 6.2, { align: "right" });
+        y += 9;
+      };
+      const checkPageBreakTable = (needed) => {
+        if (y + needed > pageHeight - 18) { newPage(); drawTableHeader(); }
+      };
+      drawTableHeader();
 
-    // ===== EVENT PROGRAMME =====
-    if ((proposal.programme || []).length > 0) {
-      newPage();
-      pageHeaderBar(logoDataUrl);
-      sectionTitle("Event Programme");
-      proposal.programme.forEach(item => {
-        checkPageBreak(16);
-        doc.setFont("times", "italic"); doc.setFontSize(10);
-        doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-        doc.text(item.time || "", margin, y);
-        y += 5.5;
-        doc.setFont("times", "bold"); doc.setFontSize(11.5);
+      let rowIdx = 0;
+      (linkedBudget.days || []).forEach(d => {
+        checkPageBreakTable(10);
+        doc.setFillColor(240, 225, 200);
+        doc.rect(margin, y, pageWidth - margin * 2, 8, "F");
+        doc.setFont("times", "bold"); doc.setFontSize(10);
         doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
-        doc.text(item.title || "", margin, y);
-        y += 5.5;
-        if (item.description) {
-          doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
-          doc.setTextColor(55, 50, 45);
-          const lines = doc.splitTextToSize(item.description, pageWidth - margin * 2);
-          lines.forEach(line => { checkPageBreak(5.5); doc.text(line, margin, y); y += 5; });
-        }
-        y += 5;
-      });
-    }
-
-    // ===== MENUS =====
-    const menuSections = [
-      { label: "Breakfast", items: proposal.menuBreakfast || [] },
-      { label: "Lunch", items: proposal.menuLunch || [] },
-      { label: "Dinner", items: proposal.menuDinner || [] }
-    ].filter(m => m.items.length > 0);
-    if (menuSections.length > 0) {
-      newPage();
-      pageHeaderBar(logoDataUrl);
-      sectionTitle("Menu");
-      menuSections.forEach(m => {
-        checkPageBreak(10);
-        doc.setFont("times", "bold"); doc.setFontSize(11.5);
-        doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
-        doc.text(m.label, margin, y);
-        y += 6.5;
-        m.items.forEach(it => {
-          checkPageBreak(5.5);
-          doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
-          doc.setTextColor(55, 50, 45);
-          doc.text(`· ${it}`, margin + 3, y);
-          y += 5;
-        });
-        y += 5;
-      });
-    }
-
-    // ===== PHOTOGRAPHY =====
-    if (proposal.photographyText || (proposal.deliverySchedule || []).length > 0) {
-      newPage();
-      pageHeaderBar(logoDataUrl);
-      sectionTitle("Photography & Cinematography");
-      if (proposal.photographyText) bodyText(proposal.photographyText);
-      if ((proposal.deliverySchedule || []).length > 0) {
-        checkPageBreak(10);
-        doc.setFont("times", "bold"); doc.setFontSize(11);
-        doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
-        doc.text("Delivery Schedule", margin, y);
-        y += 7;
-        proposal.deliverySchedule.forEach(d => {
-          checkPageBreak(6);
+        doc.text(`${d.label}${d.date ? " — " + d.date : ""}`, margin + 4, y + 5.6);
+        y += 8;
+        (d.events || []).forEach(ev => {
+          checkPageBreakTable(8);
           doc.setFont("times", "italic"); doc.setFontSize(9.5);
           doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-          doc.text(d.date || "", margin, y);
-          doc.setFont("helvetica", "normal"); doc.setTextColor(55, 50, 45);
-          doc.text(d.item || "", margin + 35, y);
-          y += 6;
-        });
-      }
-    }
-
-    // ===== BUDGET =====
-    if (linkedBudget && linkedBudgetFin) {
-      newPage();
-      pageHeaderBar(logoDataUrl);
-      sectionTitle("Budget & Quotation", "Complete transparency — everything included");
-      (linkedBudget.days || []).forEach(d => {
-        checkPageBreak(12);
-        doc.setFont("times", "bold"); doc.setFontSize(11.5);
-        doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
-        doc.text(`${d.label}${d.date ? " — " + d.date : ""}`, margin, y);
-        y += 7;
-        (d.events || []).forEach(ev => {
-          checkPageBreak(8);
-          doc.setFont("times", "italic"); doc.setFontSize(10);
-          doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-          doc.text(`${ev.name}${ev.time ? " — " + ev.time : ""}`, margin + 3, y);
-          y += 5.5;
+          doc.text(`${ev.name}${ev.time ? " — " + ev.time : ""}`, margin + 4, y + 5);
+          y += 7;
           (ev.lines || []).forEach(l => {
-            checkPageBreak(5.5);
+            const lines = doc.splitTextToSize(l.name, pageWidth - margin * 2 - 30);
+            const rowH = 6 * lines.length;
+            checkPageBreakTable(rowH);
+            if (rowIdx % 2 === 0) {
+              doc.setFillColor(247, 242, 230);
+              doc.rect(margin, y, pageWidth - margin * 2, rowH, "F");
+            }
             doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-            doc.setTextColor(55, 50, 45);
-            doc.text(l.name, margin + 6, y);
-            doc.text(String(l.qty), pageWidth - margin, y, { align: "right" });
-            y += 5;
+            doc.setTextColor(45, 40, 35);
+            doc.text(lines, margin + 6, y + 4.2);
+            doc.text(String(l.qty), pageWidth - margin - 4, y + 4.2, { align: "right" });
+            y += rowH;
+            rowIdx++;
           });
-          y += 3;
         });
       });
-      checkPageBreak(20);
-      y += 4;
+
+      checkPageBreak(16);
+      y += 3;
       doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
-      doc.roundedRect(margin, y, pageWidth - margin * 2, 16, 2.5, 2.5, "F");
+      doc.roundedRect(margin, y, pageWidth - margin * 2, 14, 2, 2, "F");
       doc.setTextColor(255, 255, 255);
-      doc.setFont("times", "bold"); doc.setFontSize(13);
-      doc.text("Total Package", margin + 6, y + 6.5);
-      doc.setFontSize(17);
-      doc.text(isFinite(linkedBudgetFin.finalBudget) ? inr(linkedBudgetFin.finalBudget) : "—", pageWidth - margin - 6, y + 12, { align: "right" });
-      y += 24;
+      doc.setFont("times", "bold"); doc.setFontSize(11);
+      doc.text("Total Package", margin + 6, y + 5.5);
+      doc.setFontSize(15);
+      doc.text(linkedBudgetFin && isFinite(linkedBudgetFin.finalBudget) ? inr(linkedBudgetFin.finalBudget) : "—", pageWidth - margin - 6, y + 10, { align: "right" });
+      y += 20;
     }
 
-    // ===== PAYMENT SCHEDULE + CLOSING =====
-    if ((proposal.paymentSchedule || []).length > 0 || cs.address || cs.website || cs.phone) {
-      newPage();
-      pageHeaderBar(logoDataUrl);
-      if ((proposal.paymentSchedule || []).length > 0) {
-        sectionTitle("Payment Schedule");
-        const total = linkedBudgetFin && isFinite(linkedBudgetFin.finalBudget) ? linkedBudgetFin.finalBudget : 0;
-        proposal.paymentSchedule.forEach(p => {
-          checkPageBreak(7);
-          doc.setFont("helvetica", "normal"); doc.setFontSize(10.5);
-          doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-          doc.text(`${p.percent}%`, margin, y);
-          doc.setTextColor(55, 50, 45);
-          doc.text(`${p.label}${total ? " — " + inr(total * (p.percent / 100)) : ""}`, margin + 16, y);
-          y += 6.5;
-        });
+    // ===== FINAL PAGE: PAYMENT SCHEDULE + THANK YOU + CONTACT =====
+    newPage();
+    y = margin + 6;
+    if ((proposal.paymentSchedule || []).length > 0) {
+      sectionTitle("Payment Schedule");
+      checkPageBreak(10);
+      doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+      doc.rect(margin, y, pageWidth - margin * 2, 9, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("times", "bold"); doc.setFontSize(10);
+      doc.text("MILESTONE", margin + 4, y + 6.2);
+      doc.text("%", pageWidth - margin - 40, y + 6.2, { align: "right" });
+      doc.text("AMOUNT", pageWidth - margin - 4, y + 6.2, { align: "right" });
+      y += 9;
+      const total = linkedBudgetFin && isFinite(linkedBudgetFin.finalBudget) ? linkedBudgetFin.finalBudget : 0;
+      proposal.paymentSchedule.forEach((p, i) => {
+        checkPageBreak(8);
+        if (i % 2 === 0) { doc.setFillColor(247, 242, 230); doc.rect(margin, y, pageWidth - margin * 2, 8, "F"); }
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+        doc.setTextColor(45, 40, 35);
+        doc.text(p.label || "", margin + 4, y + 5.5);
+        doc.text(`${p.percent}%`, pageWidth - margin - 40, y + 5.5, { align: "right" });
+        doc.text(total ? inr(total * (p.percent / 100)) : "—", pageWidth - margin - 4, y + 5.5, { align: "right" });
         y += 8;
-      }
-      checkPageBreak(46);
+      });
       y += 10;
-      doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-      doc.setLineWidth(0.4);
-      doc.line(pageWidth / 2 - 30, y, pageWidth / 2 + 30, y);
-      y += 10;
-      doc.setFont("times", "bold"); doc.setFontSize(11);
-      doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
-      doc.text("We thank you for the opportunity to be part of your celebration.", pageWidth / 2, y, { align: "center" });
-      y += 14;
-      if (logoDataUrl) { safeAddImage(logoDataUrl, pageWidth / 2 - 10, y, 20, 20); y += 26; }
-      doc.setFont("times", "bold"); doc.setFontSize(14);
-      doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
-      doc.text(cs.companyName || "", pageWidth / 2, y, { align: "center" });
-      y += 8;
-      doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
-      doc.setTextColor(90, 85, 80);
-      if (cs.address) { doc.text(cs.address, pageWidth / 2, y, { align: "center" }); y += 5.5; }
-      const contactLine = [cs.website, cs.phone].filter(Boolean).join("  ·  ");
-      if (contactLine) { doc.text(contactLine, pageWidth / 2, y, { align: "center" }); y += 5.5; }
     }
+
+    checkPageBreak(50);
+    doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+    doc.setLineWidth(0.4);
+    doc.line(pageWidth / 2 - 30, y, pageWidth / 2 + 30, y);
+    y += 10;
+    doc.setFont("times", "bold"); doc.setFontSize(11);
+    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.text("We thank you for the opportunity to be part of your celebration.", pageWidth / 2, y, { align: "center" });
+    y += 14;
+    if (logoDataUrl) { safeAddImage(logoDataUrl, pageWidth / 2 - 9, y, 18, 18); y += 24; }
+    doc.setFont("times", "bold"); doc.setFontSize(13);
+    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.text(cs.companyName || "", pageWidth / 2, y, { align: "center" });
+    y += 7;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+    doc.setTextColor(90, 85, 80);
+    if (cs.address) { doc.text(cs.address, pageWidth / 2, y, { align: "center" }); y += 5.5; }
+    const contactLine = [cs.website, cs.phone].filter(Boolean).join("   ·   ");
+    if (contactLine) { doc.text(contactLine, pageWidth / 2, y, { align: "center" }); y += 5.5; }
 
     footer();
     doc.save(`${(proposal.title || "proposal").replace(/[^a-z0-9]/gi, "_")}.pdf`);
+    return { loadErrors };
   };
+</script>
+
 </script>
 
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -3688,8 +3558,8 @@ function ProposalsListView({ proposals, setProposals, onOpen, logActivity }) {
   const createProposal = () => {
     const p = {
       id: uid(), title: "Exclusive Wedding Proposal", brideNam: "", groomName: "", weddingDate: "",
-      venueName: "", proposalDate: new Date().toISOString().slice(0, 10),
-      heroImage: "", legacyText: "", venueDescription: "", venuePhotos: [], venueFacilities: [],
+      venueName: "", proposalDate: new Date().toISOString().slice(0, 10), clientContact: "",
+      heroImage: "", legacyText: "", legacyHighlights: [], venueDescription: "", venuePhotos: [], venueFacilities: [],
       decorThemeName: "", decorDescription: "", decorPhotos: [],
       programme: [], menuBreakfast: [], menuLunch: [], menuDinner: [],
       photographyText: "", deliverySchedule: [],
@@ -3828,7 +3698,10 @@ function ProposalBuilder({ proposal, budgets, companySettings, onBack, onChange 
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      await window.generateProposalPdf(proposal, companySettings, linkedBudget, linkedBudgetFin);
+      const result = await window.generateProposalPdf(proposal, companySettings, linkedBudget, linkedBudgetFin);
+      if (result && result.loadErrors && result.loadErrors.length > 0) {
+        alert("PDF generated, but some images couldn't be loaded and were skipped:\n\n" + result.loadErrors.join("\n"));
+      }
     } catch (err) {
       alert("Could not generate the proposal PDF: " + err.message);
     }
@@ -3862,10 +3735,11 @@ function ProposalBuilder({ proposal, budgets, companySettings, onBack, onChange 
             <input className="beo-input" placeholder="Bride's name" value={proposal.brideNam || ""} onChange={e => update({ brideNam: e.target.value })} />
             <input className="beo-input" placeholder="Groom's name" value={proposal.groomName || ""} onChange={e => update({ groomName: e.target.value })} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
             <div><label style={{ fontSize: 11.5, color: "#8a8071" }}>Wedding Date</label><input className="beo-input" type="date" value={proposal.weddingDate || ""} onChange={e => update({ weddingDate: e.target.value })} style={{ marginTop: 4 }} /></div>
             <div><label style={{ fontSize: 11.5, color: "#8a8071" }}>Proposal Date</label><input className="beo-input" type="date" value={proposal.proposalDate || ""} onChange={e => update({ proposalDate: e.target.value })} style={{ marginTop: 4 }} /></div>
             <div><label style={{ fontSize: 11.5, color: "#8a8071" }}>Venue Name</label><input className="beo-input" value={proposal.venueName || ""} onChange={e => update({ venueName: e.target.value })} style={{ marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11.5, color: "#8a8071" }}>Client Contact</label><input className="beo-input" value={proposal.clientContact || ""} onChange={e => update({ clientContact: e.target.value })} style={{ marginTop: 4 }} /></div>
           </div>
         </React.Fragment>
       ))}
