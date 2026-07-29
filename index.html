@@ -376,6 +376,12 @@ function MainApp({ user }) {
   const [recentItems, setRecentItems] = useState([]);
   const [bundles, setBundles] = useState([]);
   const [activityLog, setActivityLog] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [activeVendorId, setActiveVendorId] = useState(null);
+  const [ideas, setIdeas] = useState([]);
+  const [decorFunctions, setDecorFunctions] = useState([]);
+  const [activeFunctionId, setActiveFunctionId] = useState(null);
+  const [activeThemeId, setActiveThemeId] = useState(null);
   const [cities, setCities] = useState([]);
   const [corpQuotes, setCorpQuotes] = useState([]);
   const [tab, setTab] = useState(isAdmin ? "dashboard" : "hotels");
@@ -403,6 +409,12 @@ function MainApp({ user }) {
       else setCorpQuotes([]);
       if (data && data.activityLog) setActivityLog(data.activityLog);
       else setActivityLog([]);
+      if (data && data.vendors) setVendors(data.vendors);
+      else setVendors([]);
+      if (data && data.ideas) setIdeas(data.ideas);
+      else setIdeas([]);
+      if (data && data.decorFunctions) setDecorFunctions(data.decorFunctions);
+      else setDecorFunctions([]);
       setSharedLoaded(true);
     }, err => {
       console.error(err);
@@ -463,10 +475,10 @@ function MainApp({ user }) {
     if (!loaded) return;
     if (skipNextSharedSave.current) { skipNextSharedSave.current = false; return; }
     setSyncStatus("syncing");
-    sharedDocRef.set({ cities, corpQuotes, activityLog }, { merge: true })
+    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, ideas, decorFunctions }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [cities, corpQuotes, activityLog]);
+  }, [cities, corpQuotes, activityLog, vendors, ideas, decorFunctions]);
 
   const logActivity = (what) => {
     const entry = { id: uid(), who: getDeviceUser(), what, when: Date.now() };
@@ -487,6 +499,7 @@ function MainApp({ user }) {
   };
 
   const openHotel = (cityId, hotelId) => { setActiveCityId(cityId); setActiveHotelId(hotelId); setTab("hotelDetail"); };
+  const openVendor = (id) => { setActiveVendorId(id); setTab("vendorDetail"); };
   const openQuote = (id) => { setActiveQuoteId(id); setTab("quoteBuilder"); };
   const createQuote = () => {
     const q = {
@@ -561,6 +574,9 @@ function MainApp({ user }) {
           {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
           <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
           <TabBtn active={tab === "quotes" || tab === "quoteBuilder"} onClick={() => setTab("quotes")}>Corporate Quotes</TabBtn>
+          <TabBtn active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>Vendors & Artists</TabBtn>
+          <TabBtn active={tab === "ideas"} onClick={() => setTab("ideas")}>💡 Idea Box</TabBtn>
+          <TabBtn active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨 Decor</TabBtn>
           {isAdmin && (
             <React.Fragment>
               <button className="beo-btn beo-btn-ghost" onClick={handleBackup} title="Download a full backup JSON file">⬇ Backup</button>
@@ -678,6 +694,33 @@ function MainApp({ user }) {
             cities={cities}
             onBack={() => setTab("quotes")}
             onChange={(updated) => setCorpQuotes(prev => prev.map(q => q.id === updated.id ? updated : q))}
+          />
+        )}
+        {tab === "vendors" && (
+          <VendorsView vendors={vendors} setVendors={setVendors} onOpen={openVendor} logActivity={logActivity} />
+        )}
+        {tab === "vendorDetail" && activeVendorId && (
+          <VendorDetail
+            vendor={vendors.find(v => v.id === activeVendorId)}
+            onBack={() => setTab("vendors")}
+            onChange={(updated) => setVendors(prev => prev.map(v => v.id === updated.id ? updated : v))}
+          />
+        )}
+        {tab === "ideas" && <IdeaBoxView ideas={ideas} setIdeas={setIdeas} logActivity={logActivity} />}
+        {tab === "decor" && (
+          <DecorView
+            decorFunctions={decorFunctions}
+            setDecorFunctions={setDecorFunctions}
+            onOpenTheme={(funcId, themeId) => { setActiveFunctionId(funcId); setActiveThemeId(themeId); setTab("decorTheme"); }}
+            logActivity={logActivity}
+          />
+        )}
+        {tab === "decorTheme" && activeFunctionId && activeThemeId && (
+          <DecorThemeDetail
+            decorFunction={decorFunctions.find(f => f.id === activeFunctionId)}
+            theme={(decorFunctions.find(f => f.id === activeFunctionId)?.themes || []).find(t => t.id === activeThemeId)}
+            onBack={() => setTab("decor")}
+            onChange={(updatedTheme) => setDecorFunctions(prev => prev.map(f => f.id === activeFunctionId ? { ...f, themes: f.themes.map(t => t.id === updatedTheme.id ? updatedTheme : t) } : f))}
           />
         )}
       </div>
@@ -2161,6 +2204,564 @@ function HotelDetail({ city, hotel, cities, quotes, onOpenQuote, onBack, onChang
 }
 
 /* ============================= CORPORATE QUOTES ============================= */
+
+const VENDOR_CATEGORIES = ["Anchor", "Music Band", "Live Band", "Singer", "Other Artist", "Vendor", "Other"];
+
+function VendorsView({ vendors, setVendors, onOpen, logActivity }) {
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [newName, setNewName] = useState("");
+  const [newCategory, setNewCategory] = useState("Anchor");
+
+  const q = search.trim().toLowerCase();
+  const filtered = vendors.filter(v => {
+    if (categoryFilter !== "All" && v.category !== categoryFilter) return false;
+    if (q && !v.name.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  const addVendor = () => {
+    const name = newName.trim();
+    if (!name) return;
+    const v = {
+      id: uid(), name, category: newCategory, officeLocation: "", mapUrl: "",
+      metNote: "", costing: "", phones: [], photos: [], documents: [], workHistory: []
+    };
+    setVendors(prev => [v, ...prev]);
+    if (logActivity) logActivity(`Added vendor/artist "${name}" (${newCategory})`);
+    setNewName("");
+  };
+  const removeVendor = (id) => setVendors(prev => prev.filter(v => v.id !== id));
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>Vendors & Artists</div>
+
+      <div className="beo-card" style={{ padding: 14, marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <input className="beo-input" placeholder="🔍 Search by name…" value={search} onChange={e => setSearch(e.target.value)} style={{ flex: "1 1 220px" }} />
+        <select className="beo-input" style={{ width: "auto" }} value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+          <option value="All">All Categories</option>
+          {VENDOR_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+
+      <div className="beo-card" style={{ padding: 14, marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input className="beo-input" placeholder="Name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addVendor()} style={{ flex: "1 1 200px" }} />
+        <select className="beo-input" style={{ width: "auto" }} value={newCategory} onChange={e => setNewCategory(e.target.value)}>
+          {VENDOR_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <button className="beo-btn beo-btn-primary" onClick={addVendor}>＋ Add</button>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>No vendors or artists match.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+          {filtered.map(v => (
+            <div key={v.id} className="beo-card" style={{ padding: 16, cursor: "pointer", position: "relative" }} onClick={() => onOpen(v.id)}>
+              {v.photos && v.photos[0] && (
+                <img src={photoUrlOf(v.photos[0])} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
+              )}
+              <div style={{ fontSize: 11, color: "#B8934A", fontWeight: 700, textTransform: "uppercase" }}>{v.category}</div>
+              <div style={{ fontWeight: 700, fontSize: 14.5 }}>{v.name}</div>
+              <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>{v.officeLocation || "No location added"}</div>
+              <span style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeVendor(v.id); }}>🗑</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VendorDetail({ vendor, onBack, onChange }) {
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const [newPhotoUrl, setNewPhotoUrl] = useState("");
+  const [newDocLabel, setNewDocLabel] = useState("");
+  const [newDocUrl, setNewDocUrl] = useState("");
+  const [newHistoryText, setNewHistoryText] = useState("");
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+
+  if (!vendor) return null;
+  const update = (patch) => onChange({ ...vendor, ...patch });
+  const photos = vendor.photos || [];
+  const documents = vendor.documents || [];
+  const phones = vendor.phones || [];
+  const workHistory = vendor.workHistory || [];
+  const photoUrl = (p) => (typeof p === "string" ? p : p.url);
+
+  const addPhone = () => update({ phones: [...phones, { id: uid(), name: "", phone: "" }] });
+  const updatePhone = (id, patch) => update({ phones: phones.map(p => p.id === id ? { ...p, ...patch } : p) });
+  const removePhone = (id) => update({ phones: phones.filter(p => p.id !== id) });
+
+  const addHistory = () => {
+    if (!newHistoryText.trim()) return;
+    update({ workHistory: [{ id: uid(), date: new Date().toISOString().slice(0, 10), text: newHistoryText.trim() }, ...workHistory] });
+    setNewHistoryText("");
+  };
+  const removeHistory = (id) => update({ workHistory: workHistory.filter(h => h.id !== id) });
+
+  const addPhoto = () => {
+    if (!newPhotoUrl.trim()) return;
+    update({ photos: [...photos, toDirectImageUrl(newPhotoUrl)] });
+    setNewPhotoUrl("");
+  };
+  const uploadPhotoFile = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadError(""); setUploadingPhoto(true);
+    try {
+      const path = `vendors/${vendor.id}/photos/${Date.now()}_${file.name}`;
+      const ref = window.__storage.ref().child(path);
+      await ref.put(file);
+      const url = await ref.getDownloadURL();
+      update({ photos: [...photos, { url, storagePath: path }] });
+    } catch (err) { setUploadError("Upload failed: " + err.message); }
+    setUploadingPhoto(false);
+  };
+  const removePhoto = (i) => {
+    const target = photos[i];
+    if (target && typeof target === "object" && target.storagePath) window.__storage.ref().child(target.storagePath).delete().catch(() => {});
+    update({ photos: photos.filter((_, idx) => idx !== i) });
+    setPhotoIdx(0);
+  };
+  const addDoc = () => {
+    if (!newDocUrl.trim() || documents.length >= 6) return;
+    update({ documents: [...documents, { id: uid(), label: newDocLabel.trim() || "Document", url: newDocUrl.trim() }] });
+    setNewDocLabel(""); setNewDocUrl("");
+  };
+  const uploadDocFile = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file || documents.length >= 6) return;
+    setUploadError(""); setUploadingDoc(true);
+    try {
+      const path = `vendors/${vendor.id}/documents/${Date.now()}_${file.name}`;
+      const ref = window.__storage.ref().child(path);
+      await ref.put(file);
+      const url = await ref.getDownloadURL();
+      update({ documents: [...documents, { id: uid(), label: newDocLabel.trim() || file.name, url, storagePath: path }] });
+      setNewDocLabel("");
+    } catch (err) { setUploadError("Upload failed: " + err.message); }
+    setUploadingDoc(false);
+  };
+  const removeDoc = (id) => {
+    const target = documents.find(d => d.id === id);
+    if (target && target.storagePath) window.__storage.ref().child(target.storagePath).delete().catch(() => {});
+    update({ documents: documents.filter(d => d.id !== id) });
+  };
+
+  return (
+    <div>
+      <button className="beo-btn beo-btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>← Back to Vendors & Artists</button>
+      <div className="builder-col">
+        <div>
+          <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+            <input className="beo-input beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 8, border: "none", padding: "4px 0" }} value={vendor.name} onChange={e => update({ name: e.target.value })} />
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Category</label>
+            <select className="beo-input" value={vendor.category} onChange={e => update({ category: e.target.value })} style={{ marginTop: 4, marginBottom: 12, maxWidth: 220 }}>
+              {VENDOR_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Office Location</label>
+            <input className="beo-input" value={vendor.officeLocation || ""} onChange={e => update({ officeLocation: e.target.value })} style={{ marginTop: 4, marginBottom: 12 }} />
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Where we met</label>
+            <input className="beo-input" value={vendor.metNote || ""} onChange={e => update({ metNote: e.target.value })} style={{ marginTop: 4, marginBottom: 12 }} placeholder="e.g. Referred by Elegant Planner, met at a wedding in March" />
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Costing</label>
+            <textarea className="beo-input" rows={3} value={vendor.costing || ""} onChange={e => update({ costing: e.target.value })} style={{ marginTop: 4, resize: "vertical", fontFamily: "inherit" }} placeholder="e.g. ₹25,000 for a 2-hour anchoring slot, ₹40,000 for full-day" />
+          </div>
+
+          <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Photos ({photos.length})</div>
+            {photos.length > 0 ? (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ position: "relative", width: "100%", height: 220, borderRadius: 8, overflow: "hidden", background: "#F1EADA" }}>
+                  <img src={photoUrl(photos[photoIdx])} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.opacity = 0.2} />
+                  {photos.length > 1 && (
+                    <React.Fragment>
+                      <button onClick={() => setPhotoIdx((photoIdx - 1 + photos.length) % photos.length)} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", color: "#fff", border: "none", borderRadius: "50%", width: 32, height: 32, cursor: "pointer" }}>‹</button>
+                      <button onClick={() => setPhotoIdx((photoIdx + 1) % photos.length)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", color: "#fff", border: "none", borderRadius: "50%", width: 32, height: 32, cursor: "pointer" }}>›</button>
+                    </React.Fragment>
+                  )}
+                  <span onClick={() => removePhoto(photoIdx)} style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.55)", color: "#fff", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Remove</span>
+                </div>
+              </div>
+            ) : <div style={{ color: "#a39a89", fontSize: 13, marginBottom: 12 }}>No photos yet.</div>}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+              <label className="beo-btn beo-btn-primary" style={{ cursor: uploadingPhoto ? "default" : "pointer", opacity: uploadingPhoto ? 0.6 : 1 }}>
+                {uploadingPhoto ? "Uploading…" : "⬆ Upload from PC"}
+                <input type="file" accept="image/*" onChange={uploadPhotoFile} disabled={uploadingPhoto} style={{ display: "none" }} />
+              </label>
+              <span style={{ fontSize: 11.5, color: "#a39a89" }}>or paste a link below</span>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input className="beo-input" placeholder="https://…" value={newPhotoUrl} onChange={e => setNewPhotoUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && addPhoto()} />
+              <button className="beo-btn beo-btn-gold" onClick={addPhoto}>＋ Add</button>
+            </div>
+          </div>
+
+          <div className="beo-card" style={{ padding: 20 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Documents ({documents.length}/6)</div>
+            {documents.length === 0 && <div style={{ color: "#a39a89", fontSize: 13, marginBottom: 10 }}>No documents yet.</div>}
+            {documents.map(d => (
+              <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 13.5 }}>
+                <a href={d.url} target="_blank" rel="noreferrer" style={{ color: "#6B1E23", fontWeight: 600, textDecoration: "none" }}>📄 {d.label}</a>
+                <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeDoc(d.id)}>🗑</span>
+              </div>
+            ))}
+            {documents.length < 6 && (
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
+                <input className="beo-input" placeholder="Label" value={newDocLabel} onChange={e => setNewDocLabel(e.target.value)} style={{ marginBottom: 8 }} />
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+                  <label className="beo-btn beo-btn-primary" style={{ cursor: uploadingDoc ? "default" : "pointer", opacity: uploadingDoc ? 0.6 : 1 }}>
+                    {uploadingDoc ? "Uploading…" : "⬆ Upload from PC"}
+                    <input type="file" onChange={uploadDocFile} disabled={uploadingDoc} style={{ display: "none" }} />
+                  </label>
+                  <span style={{ fontSize: 11.5, color: "#a39a89" }}>or paste a link below</span>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input className="beo-input" placeholder="https://…" value={newDocUrl} onChange={e => setNewDocUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && addDoc()} />
+                  <button className="beo-btn beo-btn-gold" onClick={addDoc}>＋</button>
+                </div>
+              </div>
+            )}
+            {uploadError && <div style={{ color: "#c9585d", fontSize: 12, marginTop: 10 }}>{uploadError}</div>}
+          </div>
+        </div>
+
+        <div>
+          <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23" }}>Phone Numbers</div>
+              <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={addPhone}>＋ Add</button>
+            </div>
+            {phones.length === 0 && <div style={{ color: "#a39a89", fontSize: 12.5 }}>None added.</div>}
+            {phones.map(p => (
+              <div key={p.id} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid #F1EADA" }}>
+                <input className="beo-input" placeholder="Name / role" value={p.name} onChange={e => updatePhone(p.id, { name: e.target.value })} style={{ marginBottom: 6 }} />
+                <input className="beo-input" placeholder="Phone number" value={p.phone} onChange={e => updatePhone(p.id, { phone: e.target.value })} style={{ marginBottom: 6 }} />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  {p.phone ? <a href={waLink(p.phone)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2E7D32", fontWeight: 600, textDecoration: "none" }}>💬 WhatsApp</a> : <span />}
+                  <span style={{ color: "#c98b8e", cursor: "pointer", fontSize: 12 }} onClick={() => removePhone(p.id)}>🗑 Remove</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="beo-card" style={{ padding: 20 }}>
+            <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>Work History With Us</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+              <input className="beo-input" placeholder="e.g. Anchored the Sharma Sangeet, 12 March 2026" value={newHistoryText} onChange={e => setNewHistoryText(e.target.value)} onKeyDown={e => e.key === "Enter" && addHistory()} />
+              <button className="beo-btn beo-btn-primary" onClick={addHistory}>＋</button>
+            </div>
+            {workHistory.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5 }}>No history logged yet.</div> : workHistory.map(h => (
+              <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+                <div><b style={{ color: "#6B1E23" }}>{h.date}:</b> {h.text}</div>
+                <span style={{ color: "#c98b8e", cursor: "pointer", marginLeft: 10 }} onClick={() => removeHistory(h.id)}>🗑</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const getYoutubeEmbedUrl = (url) => {
+  try {
+    const u = new URL(url);
+    let id = "";
+    if (u.hostname.includes("youtu.be")) id = u.pathname.slice(1);
+    else if (u.hostname.includes("youtube.com")) id = u.searchParams.get("v") || (u.pathname.includes("/shorts/") ? u.pathname.split("/shorts/")[1] : "");
+    return id ? `https://www.youtube.com/embed/${id}` : null;
+  } catch (e) { return null; }
+};
+
+function IdeaBoxView({ ideas, setIdeas, logActivity }) {
+  const [submittedBy, setSubmittedBy] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [imageUrlDraft, setImageUrlDraft] = useState("");
+  const [linkDraft, setLinkDraft] = useState("");
+  const [draftImages, setDraftImages] = useState([]);
+  const [draftLinks, setDraftLinks] = useState([]);
+
+  const addDraftImage = () => {
+    if (!imageUrlDraft.trim()) return;
+    setDraftImages(prev => [...prev, toDirectImageUrl(imageUrlDraft)]);
+    setImageUrlDraft("");
+  };
+  const addDraftLink = () => {
+    if (!linkDraft.trim()) return;
+    setDraftLinks(prev => [...prev, linkDraft.trim()]);
+    setLinkDraft("");
+  };
+
+  const submitIdea = () => {
+    if (!title.trim()) return;
+    const idea = {
+      id: uid(), submittedBy: submittedBy.trim() || "Anonymous", title: title.trim(), description: description.trim(),
+      images: draftImages, links: draftLinks, createdAt: Date.now()
+    };
+    setIdeas(prev => [idea, ...prev]);
+    if (logActivity) logActivity(`Added an idea: "${idea.title}"`);
+    setTitle(""); setDescription(""); setDraftImages([]); setDraftLinks([]);
+  };
+  const removeIdea = (id) => setIdeas(prev => prev.filter(i => i.id !== id));
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 6 }}>💡 Idea Box</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", marginBottom: 16 }}>Share an idea for the team — reference photos, YouTube/Instagram links, and a description.</div>
+
+      <div className="beo-card" style={{ padding: 18, marginBottom: 20 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Add a new idea</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <input className="beo-input" placeholder="Your name" value={submittedBy} onChange={e => setSubmittedBy(e.target.value)} />
+          <input className="beo-input" placeholder="Idea title" value={title} onChange={e => setTitle(e.target.value)} />
+        </div>
+        <textarea className="beo-input" rows={3} placeholder="Describe the idea…" value={description} onChange={e => setDescription(e.target.value)} style={{ marginBottom: 10, resize: "vertical", fontFamily: "inherit" }} />
+
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          <input className="beo-input" placeholder="Paste image link (optional)" value={imageUrlDraft} onChange={e => setImageUrlDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && addDraftImage()} />
+          <button className="beo-btn beo-btn-ghost" onClick={addDraftImage}>＋ Add image</button>
+        </div>
+        {draftImages.length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            {draftImages.map((img, i) => (
+              <div key={i} style={{ width: 50, height: 50, borderRadius: 6, overflow: "hidden", position: "relative" }}>
+                <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.opacity = 0.2} />
+                <span onClick={() => setDraftImages(prev => prev.filter((_, idx) => idx !== i))} style={{ position: "absolute", top: 0, right: 0, background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, padding: "0 4px", cursor: "pointer" }}>×</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          <input className="beo-input" placeholder="Paste YouTube, Instagram, or any link (optional)" value={linkDraft} onChange={e => setLinkDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && addDraftLink()} />
+          <button className="beo-btn beo-btn-ghost" onClick={addDraftLink}>＋ Add link</button>
+        </div>
+        {draftLinks.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            {draftLinks.map((l, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l}</span>
+                <span onClick={() => setDraftLinks(prev => prev.filter((_, idx) => idx !== i))} style={{ color: "#c98b8e", cursor: "pointer", marginLeft: 8 }}>×</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button className="beo-btn beo-btn-primary" onClick={submitIdea}>＋ Post Idea</button>
+      </div>
+
+      {ideas.length === 0 ? (
+        <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>No ideas shared yet.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+          {ideas.map(idea => (
+            <div key={idea.id} className="beo-card" style={{ padding: 16, position: "relative" }}>
+              <span onClick={() => removeIdea(idea.id)} style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }}>🗑</span>
+              <div style={{ fontSize: 11, color: "#B8934A", fontWeight: 700, textTransform: "uppercase" }}>By {idea.submittedBy}</div>
+              <div className="beo-serif" style={{ fontSize: 17, fontWeight: 700, color: "#6B1E23", marginBottom: 6 }}>{idea.title}</div>
+              {idea.description && <div style={{ fontSize: 13, color: "#333", marginBottom: 10 }}>{idea.description}</div>}
+              {(idea.images || []).length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                  {idea.images.map((img, i) => (
+                    <img key={i} src={img} alt="" style={{ width: 70, height: 70, borderRadius: 6, objectFit: "cover" }} onError={e => e.target.style.display = "none"} />
+                  ))}
+                </div>
+              )}
+              {(idea.links || []).map((l, i) => {
+                const yt = getYoutubeEmbedUrl(l);
+                return yt ? (
+                  <div key={i} style={{ marginBottom: 8, borderRadius: 8, overflow: "hidden" }}>
+                    <iframe src={yt} title="YouTube video" style={{ width: "100%", height: 160, border: 0 }} allowFullScreen></iframe>
+                  </div>
+                ) : (
+                  <a key={i} href={l} target="_blank" rel="noreferrer" style={{ display: "block", fontSize: 12.5, color: "#6B1E23", fontWeight: 600, marginBottom: 6, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🔗 {l}</a>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DecorView({ decorFunctions, setDecorFunctions, onOpenTheme, logActivity }) {
+  const [openFuncId, setOpenFuncId] = useState(decorFunctions[0]?.id || null);
+  const [newFuncName, setNewFuncName] = useState("");
+  const [newThemeName, setNewThemeName] = useState("");
+
+  useEffect(() => { if ((!openFuncId || !decorFunctions.find(f => f.id === openFuncId)) && decorFunctions[0]) setOpenFuncId(decorFunctions[0].id); }, [decorFunctions]);
+
+  const addFunction = () => {
+    if (!newFuncName.trim()) return;
+    const f = { id: uid(), name: newFuncName.trim(), themes: [] };
+    setDecorFunctions(prev => [...prev, f]);
+    if (logActivity) logActivity(`Added decor function "${f.name}"`);
+    setNewFuncName(""); setOpenFuncId(f.id);
+  };
+  const removeFunction = (id) => setDecorFunctions(prev => prev.filter(f => f.id !== id));
+
+  const addTheme = (funcId) => {
+    if (!newThemeName.trim()) return;
+    const t = { id: uid(), name: newThemeName.trim(), description: "", costMin: 0, costMax: 0, media: [] };
+    setDecorFunctions(prev => prev.map(f => f.id === funcId ? { ...f, themes: [...f.themes, t] } : f));
+    if (logActivity) logActivity(`Added decor theme "${t.name}"`);
+    setNewThemeName("");
+  };
+  const removeTheme = (funcId, themeId) => setDecorFunctions(prev => prev.map(f => f.id === funcId ? { ...f, themes: f.themes.filter(t => t.id !== themeId) } : f));
+
+  const openFunc = decorFunctions.find(f => f.id === openFuncId);
+
+  return (
+    <div className="two-col">
+      <div className="beo-card" style={{ padding: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 10 }}>Functions</div>
+        {decorFunctions.map(f => (
+          <div key={f.id} onClick={() => setOpenFuncId(f.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: openFuncId === f.id ? "#F1EADA" : "transparent", marginBottom: 2 }}>
+            <span style={{ fontSize: 14 }}>📁 {f.name} <span style={{ fontSize: 11, color: "#a39a89" }}>({f.themes.length})</span></span>
+            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeFunction(f.id); }}>🗑</span>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+          <input className="beo-input" placeholder="New function (e.g. Haldi)" value={newFuncName} onChange={e => setNewFuncName(e.target.value)} onKeyDown={e => e.key === "Enter" && addFunction()} style={{ fontSize: 13 }} />
+          <button className="beo-btn beo-btn-gold" onClick={addFunction}>＋</button>
+        </div>
+      </div>
+      <div className="beo-card" style={{ padding: 20 }}>
+        {!openFunc ? <div style={{ color: "#a39a89" }}>Create a function folder to start adding themes.</div> : (
+          <React.Fragment>
+            <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>{openFunc.name}</div>
+            {openFunc.themes.length === 0 && <div style={{ color: "#a39a89", fontSize: 14, marginBottom: 14 }}>No themes yet in this function.</div>}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 18 }}>
+              {openFunc.themes.map(t => (
+                <div key={t.id} className="beo-card" style={{ padding: 14, cursor: "pointer", position: "relative" }} onClick={() => onOpenTheme(openFunc.id, t.id)}>
+                  {t.media && t.media.find(m => m.type === "image") && (
+                    <img src={photoUrlOf(t.media.find(m => m.type === "image"))} alt="" style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
+                  )}
+                  <div style={{ fontWeight: 700, fontSize: 14.5 }}>{t.name}</div>
+                  {(t.costMin || t.costMax) ? <div style={{ fontSize: 12, color: "#8a8071", marginTop: 3 }}>{inr(t.costMin)} – {inr(t.costMax)}</div> : <div style={{ fontSize: 11.5, color: "#a39a89", marginTop: 3 }}>No costing added</div>}
+                  <span style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeTheme(openFunc.id, t.id); }}>🗑</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
+              <input className="beo-input" placeholder="New theme name (e.g. Brij Theme)" value={newThemeName} onChange={e => setNewThemeName(e.target.value)} onKeyDown={e => e.key === "Enter" && addTheme(openFunc.id)} />
+              <button className="beo-btn beo-btn-primary" onClick={() => addTheme(openFunc.id)}>＋ Add theme</button>
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DecorThemeDetail({ decorFunction, theme, onBack, onChange }) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [lightboxIdx, setLightboxIdx] = useState(null);
+
+  if (!theme) return null;
+  const update = (patch) => onChange({ ...theme, ...patch });
+  const media = theme.media || [];
+
+  const uploadMedia = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    setUploadError(""); setUploading(true);
+    try {
+      const newItems = [];
+      for (const file of files) {
+        const type = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "pdf";
+        const path = `decor/${theme.id}/${Date.now()}_${file.name}`;
+        const ref = window.__storage.ref().child(path);
+        await ref.put(file);
+        const url = await ref.getDownloadURL();
+        newItems.push({ id: uid(), type, url, storagePath: path, name: file.name });
+      }
+      update({ media: [...media, ...newItems] });
+    } catch (err) { setUploadError("Upload failed: " + err.message); }
+    setUploading(false);
+  };
+  const removeMedia = (id) => {
+    const target = media.find(m => m.id === id);
+    if (target && target.storagePath) window.__storage.ref().child(target.storagePath).delete().catch(() => {});
+    update({ media: media.filter(m => m.id !== id) });
+  };
+
+  const images = media.filter(m => m.type === "image");
+
+  return (
+    <div>
+      <button className="beo-btn beo-btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>← Back to {decorFunction ? decorFunction.name : "Decor"}</button>
+      <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+        <input className="beo-input beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 12, border: "none", padding: "4px 0" }} value={theme.name} onChange={e => update({ name: e.target.value })} />
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Description</label>
+        <textarea className="beo-input" rows={3} value={theme.description || ""} onChange={e => update({ description: e.target.value })} style={{ marginTop: 4, marginBottom: 12, resize: "vertical", fontFamily: "inherit" }} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Cost from (₹)</label>
+            <input className="beo-input" type="number" value={theme.costMin || 0} onChange={e => update({ costMin: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Cost to (₹)</label>
+            <input className="beo-input" type="number" value={theme.costMax || 0} onChange={e => update({ costMax: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} />
+          </div>
+        </div>
+      </div>
+
+      <div className="beo-card" style={{ padding: 20 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Media ({media.length})</div>
+        {images.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            {images.map((m, i) => (
+              <img key={m.id} src={photoUrlOf(m)} alt="" onClick={() => setLightboxIdx(i)} style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 8, cursor: "pointer" }} onError={e => e.target.style.opacity = 0.2} />
+            ))}
+          </div>
+        )}
+        {media.filter(m => m.type === "video").map(m => (
+          <div key={m.id} style={{ marginBottom: 14 }}>
+            <video src={m.url} controls style={{ width: "100%", maxWidth: 400, borderRadius: 8 }} />
+          </div>
+        ))}
+        {media.filter(m => m.type === "pdf").map(m => (
+          <div key={m.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 13.5 }}>
+            <a href={m.url} target="_blank" rel="noreferrer" style={{ color: "#6B1E23", fontWeight: 600, textDecoration: "none" }}>📄 {m.name}</a>
+            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeMedia(m.id)}>🗑</span>
+          </div>
+        ))}
+        {media.filter(m => m.type === "image").length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            {media.filter(m => m.type === "image").map(m => (
+              <div key={"rm-" + m.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#8a8071", padding: "2px 0" }}>
+                <span>{m.name || "Photo"}</span>
+                <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeMedia(m.id)}>🗑 remove</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <label className="beo-btn beo-btn-primary" style={{ cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.6 : 1 }}>
+          {uploading ? "Uploading…" : "⬆ Upload photos, videos, or PDFs from PC"}
+          <input type="file" accept="image/*,video/*,application/pdf" multiple onChange={uploadMedia} disabled={uploading} style={{ display: "none" }} />
+        </label>
+        {uploadError && <div style={{ color: "#c9585d", fontSize: 12, marginTop: 10 }}>{uploadError}</div>}
+      </div>
+
+      {lightboxIdx !== null && (
+        <div onClick={() => setLightboxIdx(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, cursor: "pointer" }}>
+          <img src={photoUrlOf(images[lightboxIdx])} alt="" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 function QuotesListView({ quotes, setQuotes, onOpen, onCreate, cities }) {
   const removeQuote = (id) => setQuotes(prev => prev.filter(q => q.id !== id));
