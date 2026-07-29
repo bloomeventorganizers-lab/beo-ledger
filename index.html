@@ -20,6 +20,10 @@
   .beo-btn-gold:hover { background:#a68140; }
   .beo-btn-ghost { background:transparent; color:#6B1E23; padding:6px 10px; font-size:13px; border:1px solid #E4DCC8; }
   .beo-btn-ghost:hover { background:#F1EADA; }
+  .beo-tab-btn:hover { background:#FAF3E3 !important; color:#6B1E23 !important; }
+  .beo-nav-scroll { scrollbar-width: thin; scrollbar-color: #E4DCC8 transparent; }
+  .beo-nav-scroll::-webkit-scrollbar { height: 5px; }
+  .beo-nav-scroll::-webkit-scrollbar-thumb { background: #E4DCC8; border-radius: 4px; }
   .beo-input { border:1px solid #E4DCC8; background:#fff; border-radius:6px; padding:8px 10px; font-family:inherit; font-size:14px; color:#211D17; width:100%; }
   .beo-input:focus { outline:2px solid #B8934A; outline-offset:1px; }
   .beo-card { background:#fff; border:1px solid #EDE6D6; border-radius:10px; }
@@ -179,6 +183,7 @@
 <script src="https://unpkg.com/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
 <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
@@ -190,6 +195,7 @@ const db = window.__db;
 const DEFAULT_CATEGORIES = ["Entries", "SFX", "Welcome", "Itineraries", "Hotels", "Live Band", "Games", "Stationery"];
 const ADMIN_EMAIL = "bloomeventorganizers@gmail.com";
 const uid = () => Math.random().toString(36).slice(2, 10);
+const nz = (n) => (n === 0 || n === undefined || n === null || Number.isNaN(n)) ? "" : n;
 const getDeviceUser = () => {
   let name = localStorage.getItem("beo_device_user");
   if (!name) {
@@ -210,14 +216,20 @@ const computeBudgetFinancials = (b) => {
   const individualPct = Number(b.individualCommissionPercent) || 0;
   const totalPct = hotelPct + individualPct;
   const mode = b.commissionMode || "final";
-  let finalBudget;
+  let finalBudget, commissionAmount;
   if (mode === "final") {
     finalBudget = totalPct >= 100 ? Infinity : (baseCost + profit) / (1 - totalPct / 100);
+    commissionAmount = totalPct >= 100 ? 0 : finalBudget * (totalPct / 100);
   } else {
-    finalBudget = baseCost + profit + baseCost * (hotelPct / 100) + baseCost * (individualPct / 100);
+    commissionAmount = baseCost * (hotelPct / 100) + baseCost * (individualPct / 100);
+    finalBudget = baseCost + profit + commissionAmount;
   }
+  const discountAmount = Number(b.discountAmount) || 0;
+  const afterDiscount = isFinite(finalBudget) ? Math.max(0, finalBudget - discountAmount) : finalBudget;
+  const gstAmount = isFinite(afterDiscount) ? afterDiscount * ((Number(b.gstPercent) || 0) / 100) : 0;
+  const grandTotal = isFinite(afterDiscount) ? afterDiscount + gstAmount : afterDiscount;
   const totalReceived = (b.advancePayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  return { baseCost, finalBudget, totalReceived };
+  return { baseCost, finalBudget: isFinite(grandTotal) ? grandTotal : finalBudget, totalReceived, profit, commissionAmount: isFinite(commissionAmount) ? commissionAmount : 0, gstAmount: isFinite(gstAmount) ? gstAmount : 0, expensesTotal };
 };
 const CURRENCY_OPTIONS = ["₹", "$", "€", "£", "AED"];
 const HOTEL_STATUSES = ["Not contacted", "Contacted", "Quote received", "Booked", "Dead lead"];
@@ -517,6 +529,7 @@ function MainApp({ user }) {
 
   const fileInputRef = useRef(null);
   const [globalSearch, setGlobalSearch] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const handleBackup = () => {
     const backup = { categories, budgets, recentItems, cities, corpQuotes, exportedAt: new Date().toISOString() };
@@ -567,25 +580,37 @@ function MainApp({ user }) {
             {syncStatus === "syncing" ? "Syncing…" : syncStatus === "error" ? "Sync error — check connection" : `Synced · ${user.email}`}
           </div>
         </div>
-        <nav style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {isAdmin && <TabBtn active={tab === "dashboard"} onClick={() => setTab("dashboard")}>Dashboard</TabBtn>}
-          {isAdmin && <TabBtn active={tab === "quickquote"} onClick={() => setTab("quickquote")}>⚡ Quick Quote</TabBtn>}
-          {isAdmin && <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>}
-          {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
-          <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
-          <TabBtn active={tab === "quotes" || tab === "quoteBuilder"} onClick={() => setTab("quotes")}>Corporate Quotes</TabBtn>
-          {isAdmin && <TabBtn active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>Vendors & Artists</TabBtn>}
-          {isAdmin && <TabBtn active={tab === "ideas"} onClick={() => setTab("ideas")}>💡 Idea Box</TabBtn>}
-          {isAdmin && <TabBtn active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨 Decor</TabBtn>}
-          {isAdmin && (
-            <React.Fragment>
-              <button className="beo-btn beo-btn-ghost" onClick={handleBackup} title="Download a full backup JSON file">⬇ Backup</button>
-              <button className="beo-btn beo-btn-ghost" onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Restore from a backup JSON file">⬆ Restore</button>
-              <input ref={fileInputRef} type="file" accept="application/json" onChange={handleRestoreFile} style={{ display: "none" }} />
-            </React.Fragment>
-          )}
-          <button className="beo-btn beo-btn-ghost" onClick={() => auth.signOut()}>Sign out</button>
-        </nav>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, justifyContent: "flex-end", minWidth: 0 }}>
+          <nav className="beo-nav-scroll" style={{ display: "flex", gap: 4, alignItems: "center", overflowX: "auto", maxWidth: "100%" }}>
+            {isAdmin && <TabBtn active={tab === "dashboard"} onClick={() => setTab("dashboard")}>Dashboard</TabBtn>}
+            {isAdmin && <TabBtn active={tab === "quickquote"} onClick={() => setTab("quickquote")}>⚡ Quick Quote</TabBtn>}
+            {isAdmin && <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>}
+            {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
+            <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
+            <TabBtn active={tab === "quotes" || tab === "quoteBuilder"} onClick={() => setTab("quotes")}>Corporate Quotes</TabBtn>
+            {isAdmin && <TabBtn active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>Vendors & Artists</TabBtn>}
+            {isAdmin && <TabBtn active={tab === "ideas"} onClick={() => setTab("ideas")}>💡 Idea Box</TabBtn>}
+            {isAdmin && <TabBtn active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨 Decor</TabBtn>}
+          </nav>
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <button className="beo-btn" onClick={() => setMenuOpen(!menuOpen)} style={{ background: "#F1EADA", color: "#6B1E23", padding: "9px 12px", fontSize: 16, borderRadius: 8 }} title="Account & data">⋮</button>
+            {menuOpen && (
+              <React.Fragment>
+                <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 199 }}></div>
+                <div style={{ position: "absolute", top: "110%", right: 0, background: "#fff", border: "1px solid #EDE6D6", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 180, overflow: "hidden" }}>
+                  {isAdmin && (
+                    <React.Fragment>
+                      <div onClick={() => { handleBackup(); setMenuOpen(false); }} style={{ padding: "10px 16px", cursor: "pointer", fontSize: 13.5 }}>⬇ Backup</div>
+                      <div onClick={() => { fileInputRef.current && fileInputRef.current.click(); setMenuOpen(false); }} style={{ padding: "10px 16px", cursor: "pointer", fontSize: 13.5, borderTop: "1px solid #F1EADA" }}>⬆ Restore</div>
+                    </React.Fragment>
+                  )}
+                  <div onClick={() => auth.signOut()} style={{ padding: "10px 16px", cursor: "pointer", fontSize: 13.5, borderTop: "1px solid #F1EADA", color: "#c9585d" }}>Sign out</div>
+                </div>
+              </React.Fragment>
+            )}
+            <input ref={fileInputRef} type="file" accept="application/json" onChange={handleRestoreFile} style={{ display: "none" }} />
+          </div>
+        </div>
       </div>
       {isAdmin && (
         <div style={{ borderBottom: "1px solid #EDE6D6", background: "#fff", padding: "10px 20px" }}>
@@ -730,7 +755,15 @@ function MainApp({ user }) {
 
 function TabBtn({ active, onClick, children }) {
   return (
-    <button className="beo-btn" onClick={onClick} style={{ padding: "8px 14px", borderRadius: 6, fontSize: 14, background: active ? "#6B1E23" : "transparent", color: active ? "#FAF6EE" : "#6B1E23" }}>
+    <button
+      className="beo-btn beo-tab-btn"
+      onClick={onClick}
+      style={{
+        padding: "8px 13px", borderRadius: 6, fontSize: 13.5, whiteSpace: "nowrap", flexShrink: 0,
+        background: active ? "#FAF3E3" : "transparent", color: active ? "#6B1E23" : "#7d7568",
+        fontWeight: active ? 700 : 500, borderBottom: active ? "2px solid #B8934A" : "2px solid transparent"
+      }}
+    >
       {children}
     </button>
   );
@@ -810,7 +843,7 @@ function InventoryView({ categories, setCategories, bundles, setBundles }) {
                     </div>
                     <input type="checkbox" checked={!!selectedForBundle.find(x => x.itemRef === item.id)} onChange={() => toggleBundleItem(cat.name, item)} title="Select for bundle" />
                     <input className="beo-input" value={item.name} onChange={e => updateItem(cat.id, item.id, { name: e.target.value })} />
-                    <input className="beo-input" type="number" value={item.cost} onChange={e => updateItem(cat.id, item.id, { cost: Number(e.target.value) })} />
+                    <input className="beo-input" type="number" value={nz(item.cost)} onChange={e => updateItem(cat.id, item.id, { cost: Number(e.target.value) })} />
                     <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeItem(cat.id, item.id)}>🗑</span>
                   </div>
                   {editingPhotoFor === item.id && (
@@ -928,6 +961,70 @@ function QuickQuoteView({ categories, onSave }) {
   );
 }
 
+function StatusDonutChart({ data }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+
+  useEffect(() => {
+    if (!canvasRef.current || !window.Chart) return;
+    if (chartRef.current) chartRef.current.destroy();
+    chartRef.current = new window.Chart(canvasRef.current, {
+      type: "doughnut",
+      data: {
+        labels: data.labels,
+        datasets: [{ data: data.values, backgroundColor: data.colors, borderWidth: 2, borderColor: "#fff" }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: "bottom", labels: { font: { family: "Inter", size: 12 }, padding: 12 } } },
+        cutout: "62%"
+      }
+    });
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [JSON.stringify(data.values)]);
+
+  const total = data.values.reduce((a, b) => a + b, 0);
+  if (total === 0) return <div style={{ color: "#a39a89", fontSize: 13, textAlign: "center", padding: "40px 0" }}>No budgets yet.</div>;
+
+  return <div style={{ height: 240, position: "relative" }}><canvas ref={canvasRef}></canvas></div>;
+}
+
+function IncomeBarChart({ data }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+
+  useEffect(() => {
+    if (!canvasRef.current || !window.Chart) return;
+    if (chartRef.current) chartRef.current.destroy();
+    chartRef.current = new window.Chart(canvasRef.current, {
+      type: "bar",
+      data: {
+        labels: data.map(d => d.label),
+        datasets: [
+          { label: "Revenue", data: data.map(d => d.revenue), backgroundColor: "#6B1E23" },
+          { label: "Profit", data: data.map(d => d.profit), backgroundColor: "#2E7D32" },
+          { label: "Commission Paid", data: data.map(d => d.commission), backgroundColor: "#B8712A" },
+          { label: "Taxes", data: data.map(d => d.taxes), backgroundColor: "#2A6A9E" },
+          { label: "Expenses", data: data.map(d => d.expenses), backgroundColor: "#7A4A6B" }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: "bottom", labels: { font: { family: "Inter", size: 11.5 }, padding: 10 } } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { family: "Inter", size: 11.5 } } },
+          y: { ticks: { font: { family: "Inter", size: 11 }, callback: (v) => "₹" + (v >= 1000 ? (v / 1000) + "k" : v) } }
+        }
+      }
+    });
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [JSON.stringify(data)]);
+
+  return <div style={{ height: 240, position: "relative" }}><canvas ref={canvasRef}></canvas></div>;
+}
+
 function StatCard({ label, value, sub, color }) {
   return (
     <div className="beo-card" style={{ padding: 18 }}>
@@ -975,6 +1072,35 @@ function DashboardView({ budgets, onOpen, activityLog }) {
   });
   const busiestMonths = Object.entries(monthCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
+  const statusChartData = {
+    labels: ["Lead", "Connected", "Converted"],
+    values: [leads.length, connected.length, converted.length],
+    colors: ["#8a8071", "#2A6A9E", "#2E7D32"]
+  };
+
+  // Monthly income breakdown for the last 6 months, from converted budgets by event date
+  const monthKeys = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(curYear, curMonth - i, 1);
+    monthKeys.push({ key: `${d.getFullYear()}-${d.getMonth()}`, label: d.toLocaleString("en-IN", { month: "short" }) });
+  }
+  const monthlyIncome = monthKeys.map(({ key, label }) => {
+    const [y, m] = key.split("-").map(Number);
+    const inMonth = converted.filter(x => {
+      if (!x.b.date) return false;
+      const d = new Date(x.b.date);
+      return d.getFullYear() === y && d.getMonth() === m;
+    });
+    return {
+      label,
+      revenue: inMonth.reduce((s, x) => s + (isFinite(x.fin.finalBudget) ? x.fin.finalBudget : 0), 0),
+      profit: inMonth.reduce((s, x) => s + x.fin.profit, 0),
+      commission: inMonth.reduce((s, x) => s + x.fin.commissionAmount, 0),
+      taxes: inMonth.reduce((s, x) => s + x.fin.gstAmount, 0),
+      expenses: inMonth.reduce((s, x) => s + x.fin.expensesTotal, 0),
+    };
+  });
+
   return (
     <div>
       <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 18 }}>Dashboard</div>
@@ -996,6 +1122,18 @@ function DashboardView({ budgets, onOpen, activityLog }) {
           ))}
         </div>
       </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 14, marginBottom: 20 }}>
+        <div className="beo-card" style={{ padding: 18 }}>
+          <div style={{ fontSize: 11.5, color: "#8a8071", textTransform: "uppercase", fontWeight: 700, marginBottom: 10 }}>Pipeline by Status</div>
+          <StatusDonutChart data={statusChartData} />
+        </div>
+        <div className="beo-card" style={{ padding: 18 }}>
+          <div style={{ fontSize: 11.5, color: "#8a8071", textTransform: "uppercase", fontWeight: 700, marginBottom: 10 }}>Income Breakdown — Last 6 Months</div>
+          <IncomeBarChart data={monthlyIncome} />
+        </div>
+      </div>
+
       <div className="beo-card" style={{ padding: 20 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Events this month</div>
         {thisMonthEvents.length === 0 ? (
@@ -1372,7 +1510,7 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
             {advancePayments.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5, marginBottom: 10 }}>No payments logged yet.</div> : advancePayments.map(p => (
               <div key={p.id} style={{ display: "grid", gridTemplateColumns: "140px 1fr 24px", gap: 8, alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA" }}>
                 <input className="beo-input" type="date" value={p.date} onChange={e => updatePayment(p.id, { date: e.target.value })} style={{ padding: "5px 6px", fontSize: 12.5 }} />
-                <input className="beo-input" type="number" placeholder="Amount ₹" value={p.amount} onChange={e => updatePayment(p.id, { amount: Number(e.target.value) || 0 })} style={{ padding: "5px 6px", fontSize: 12.5 }} />
+                <input className="beo-input" type="number" placeholder="Amount ₹" value={nz(p.amount)} onChange={e => updatePayment(p.id, { amount: Number(e.target.value) || 0 })} style={{ padding: "5px 6px", fontSize: 12.5 }} />
                 <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removePayment(p.id)}>🗑</span>
               </div>
             ))}
@@ -1511,7 +1649,7 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
                   <div key={l.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 90px 24px", gap: 6, alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 13 }}>
                     <div>{l.name} <span style={{ color: "#a39a89", fontSize: 10.5 }}>({l.category})</span></div>
                     <input className="beo-input" type="number" min="1" value={l.qty} onChange={e => updateLine(l.id, { qty: Number(e.target.value) || 1 })} style={{ padding: "5px 6px" }} />
-                    <input className="beo-input" type="number" value={l.cost} onChange={e => updateLine(l.id, { cost: Number(e.target.value) })} style={{ padding: "5px 6px" }} />
+                    <input className="beo-input" type="number" value={nz(l.cost)} onChange={e => updateLine(l.id, { cost: Number(e.target.value) })} style={{ padding: "5px 6px" }} />
                     <div>{inr(l.cost * l.qty)}</div>
                     <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeLine(l.id)}>×</span>
                   </div>
@@ -1529,7 +1667,7 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
           <Row label="Other expenses" value={inr(expensesTotal)} />
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Your desired profit (₹)</label>
-            <input className="beo-input" type="number" value={budget.profit} onChange={e => update({ profit: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+            <input className="beo-input" type="number" value={nz(budget.profit)} onChange={e => update({ profit: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
           </div>
 
           <div style={{ margin: "14px 0" }}>
@@ -1540,7 +1678,7 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
             {otherExpenses.map(x => (
               <div key={x.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 22px", gap: 6, marginBottom: 6 }}>
                 <input className="beo-input" placeholder="e.g. Transport, GST" value={x.label} onChange={e => updateExpense(x.id, { label: e.target.value })} style={{ padding: "6px 8px", fontSize: 12.5 }} />
-                <input className="beo-input" type="number" placeholder="₹" value={x.amount} onChange={e => updateExpense(x.id, { amount: Number(e.target.value) || 0 })} style={{ padding: "6px 8px", fontSize: 12.5 }} />
+                <input className="beo-input" type="number" placeholder="₹" value={nz(x.amount)} onChange={e => updateExpense(x.id, { amount: Number(e.target.value) || 0 })} style={{ padding: "6px 8px", fontSize: 12.5 }} />
                 <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeExpense(x.id)}>×</span>
               </div>
             ))}
@@ -1548,11 +1686,11 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
 
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Hotel commission (%)</label>
-            <input className="beo-input" type="number" value={budget.commissionPercent} onChange={e => update({ commissionPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+            <input className="beo-input" type="number" value={nz(budget.commissionPercent)} onChange={e => update({ commissionPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
           </div>
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Individual commission (%)</label>
-            <input className="beo-input" type="number" value={budget.individualCommissionPercent || 0} onChange={e => update({ individualCommissionPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+            <input className="beo-input" type="number" value={nz(budget.individualCommissionPercent)} onChange={e => update({ individualCommissionPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
           </div>
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600, display: "block", marginBottom: 6 }}>Commission is calculated on</label>
@@ -1570,11 +1708,11 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
 
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Special discount (₹)</label>
-            <input className="beo-input" type="number" value={budget.discountAmount || 0} onChange={e => update({ discountAmount: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+            <input className="beo-input" type="number" value={nz(budget.discountAmount)} onChange={e => update({ discountAmount: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
           </div>
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>GST (%)</label>
-            <input className="beo-input" type="number" value={budget.gstPercent || 0} onChange={e => update({ gstPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+            <input className="beo-input" type="number" value={nz(budget.gstPercent)} onChange={e => update({ gstPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
           </div>
           <div style={{ borderTop: "1px dashed #E4DCC8", margin: "14px 0", paddingTop: 12 }}>
             <Row label="Subtotal" value={(totalPct >= 100 && mode === "final") ? "—" : inr(finalBudget)} />
@@ -2708,11 +2846,11 @@ function DecorThemeDetail({ decorFunction, theme, onBack, onChange }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Cost from (₹)</label>
-            <input className="beo-input" type="number" value={theme.costMin || 0} onChange={e => update({ costMin: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} />
+            <input className="beo-input" type="number" value={nz(theme.costMin)} onChange={e => update({ costMin: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} />
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Cost to (₹)</label>
-            <input className="beo-input" type="number" value={theme.costMax || 0} onChange={e => update({ costMax: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} />
+            <input className="beo-input" type="number" value={nz(theme.costMax)} onChange={e => update({ costMax: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} />
           </div>
         </div>
       </div>
@@ -2942,15 +3080,15 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               <div>
                 <label style={{ fontSize: 11.5, color: "#8a8071" }}>Rooms</label>
-                <input className="beo-input" type="number" value={rooms.qty} onChange={e => update({ rooms: { ...rooms, qty: Number(e.target.value) || 0 } })} />
+                <input className="beo-input" type="number" value={nz(rooms.qty)} onChange={e => update({ rooms: { ...rooms, qty: Number(e.target.value) || 0 } })} />
               </div>
               <div>
                 <label style={{ fontSize: 11.5, color: "#8a8071" }}>Rate / night (₹)</label>
-                <input className="beo-input" type="number" value={rooms.rate} onChange={e => update({ rooms: { ...rooms, rate: Number(e.target.value) || 0 } })} />
+                <input className="beo-input" type="number" value={nz(rooms.rate)} onChange={e => update({ rooms: { ...rooms, rate: Number(e.target.value) || 0 } })} />
               </div>
               <div>
                 <label style={{ fontSize: 11.5, color: "#8a8071" }}>Nights</label>
-                <input className="beo-input" type="number" value={rooms.nights} onChange={e => update({ rooms: { ...rooms, nights: Number(e.target.value) || 0 } })} />
+                <input className="beo-input" type="number" value={nz(rooms.nights)} onChange={e => update({ rooms: { ...rooms, nights: Number(e.target.value) || 0 } })} />
               </div>
             </div>
             <div style={{ textAlign: "right", fontSize: 13, marginTop: 8, color: "#6B1E23", fontWeight: 600 }}>Rooms total: {cur(roomsTotal)}</div>
@@ -2966,12 +3104,12 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
               {banquet.mode === "perPax" && (
                 <div>
                   <label style={{ fontSize: 11.5, color: "#8a8071" }}>Pax</label>
-                  <input className="beo-input" type="number" value={banquet.pax} onChange={e => update({ banquet: { ...banquet, pax: Number(e.target.value) || 0 } })} />
+                  <input className="beo-input" type="number" value={nz(banquet.pax)} onChange={e => update({ banquet: { ...banquet, pax: Number(e.target.value) || 0 } })} />
                 </div>
               )}
               <div>
                 <label style={{ fontSize: 11.5, color: "#8a8071" }}>{banquet.mode === "perPax" ? "Rate per pax (₹)" : "Flat banquet cost (₹)"}</label>
-                <input className="beo-input" type="number" value={banquet.rate} onChange={e => update({ banquet: { ...banquet, rate: Number(e.target.value) || 0 } })} />
+                <input className="beo-input" type="number" value={nz(banquet.rate)} onChange={e => update({ banquet: { ...banquet, rate: Number(e.target.value) || 0 } })} />
               </div>
             </div>
             <div style={{ textAlign: "right", fontSize: 13, marginTop: 8, color: "#6B1E23", fontWeight: 600 }}>Banquet total: {cur(banquetTotal)}</div>
@@ -2983,8 +3121,8 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
             {extraLines.map(l => (
               <div key={l.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px 100px 90px 24px", gap: 6, alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 13 }}>
                 <input className="beo-input" placeholder="Label" value={l.label} onChange={e => updateExtraLine(l.id, { label: e.target.value })} style={{ padding: "5px 6px" }} />
-                <input className="beo-input" type="number" placeholder="Qty" value={l.qty} onChange={e => updateExtraLine(l.id, { qty: Number(e.target.value) || 0 })} style={{ padding: "5px 6px" }} />
-                <input className="beo-input" type="number" placeholder="Rate ₹" value={l.rate} onChange={e => updateExtraLine(l.id, { rate: Number(e.target.value) || 0 })} style={{ padding: "5px 6px" }} />
+                <input className="beo-input" type="number" placeholder="Qty" value={nz(l.qty)} onChange={e => updateExtraLine(l.id, { qty: Number(e.target.value) || 0 })} style={{ padding: "5px 6px" }} />
+                <input className="beo-input" type="number" placeholder="Rate ₹" value={nz(l.rate)} onChange={e => updateExtraLine(l.id, { rate: Number(e.target.value) || 0 })} style={{ padding: "5px 6px" }} />
                 <div>{cur((Number(l.qty) || 0) * (Number(l.rate) || 0))}</div>
                 <span style={{ color: "#c98b8e", cursor: "pointer", textAlign: "center" }} onClick={() => removeExtraLine(l.id)}>×</span>
               </div>
@@ -3003,11 +3141,11 @@ function CorporateQuoteBuilder({ quote, cities, onBack, onChange }) {
           <Row label="Base cost (total)" value={cur(baseCost)} />
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Your desired profit (₹)</label>
-            <input className="beo-input" type="number" value={quote.profit} onChange={e => update({ profit: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+            <input className="beo-input" type="number" value={nz(quote.profit)} onChange={e => update({ profit: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
           </div>
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Hotel commission (%)</label>
-            <input className="beo-input" type="number" value={quote.commissionPercent} onChange={e => update({ commissionPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
+            <input className="beo-input" type="number" value={nz(quote.commissionPercent)} onChange={e => update({ commissionPercent: Number(e.target.value) || 0 })} style={{ marginTop: 6 }} />
           </div>
           <div style={{ margin: "14px 0" }}>
             <label style={{ fontSize: 12.5, fontWeight: 600, display: "block", marginBottom: 6 }}>Commission is calculated on</label>
