@@ -574,9 +574,9 @@ function MainApp({ user }) {
           {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
           <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
           <TabBtn active={tab === "quotes" || tab === "quoteBuilder"} onClick={() => setTab("quotes")}>Corporate Quotes</TabBtn>
-          <TabBtn active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>Vendors & Artists</TabBtn>
-          <TabBtn active={tab === "ideas"} onClick={() => setTab("ideas")}>💡 Idea Box</TabBtn>
-          <TabBtn active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨 Decor</TabBtn>
+          {isAdmin && <TabBtn active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>Vendors & Artists</TabBtn>}
+          {isAdmin && <TabBtn active={tab === "ideas"} onClick={() => setTab("ideas")}>💡 Idea Box</TabBtn>}
+          {isAdmin && <TabBtn active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨 Decor</TabBtn>}
           {isAdmin && (
             <React.Fragment>
               <button className="beo-btn beo-btn-ghost" onClick={handleBackup} title="Download a full backup JSON file">⬇ Backup</button>
@@ -696,18 +696,18 @@ function MainApp({ user }) {
             onChange={(updated) => setCorpQuotes(prev => prev.map(q => q.id === updated.id ? updated : q))}
           />
         )}
-        {tab === "vendors" && (
+        {isAdmin && tab === "vendors" && (
           <VendorsView vendors={vendors} setVendors={setVendors} onOpen={openVendor} logActivity={logActivity} />
         )}
-        {tab === "vendorDetail" && activeVendorId && (
+        {isAdmin && tab === "vendorDetail" && activeVendorId && (
           <VendorDetail
             vendor={vendors.find(v => v.id === activeVendorId)}
             onBack={() => setTab("vendors")}
             onChange={(updated) => setVendors(prev => prev.map(v => v.id === updated.id ? updated : v))}
           />
         )}
-        {tab === "ideas" && <IdeaBoxView ideas={ideas} setIdeas={setIdeas} logActivity={logActivity} />}
-        {tab === "decor" && (
+        {isAdmin && tab === "ideas" && <IdeaBoxView ideas={ideas} setIdeas={setIdeas} logActivity={logActivity} />}
+        {isAdmin && tab === "decor" && (
           <DecorView
             decorFunctions={decorFunctions}
             setDecorFunctions={setDecorFunctions}
@@ -715,7 +715,7 @@ function MainApp({ user }) {
             logActivity={logActivity}
           />
         )}
-        {tab === "decorTheme" && activeFunctionId && activeThemeId && (
+        {isAdmin && tab === "decorTheme" && activeFunctionId && activeThemeId && (
           <DecorThemeDetail
             decorFunction={decorFunctions.find(f => f.id === activeFunctionId)}
             theme={(decorFunctions.find(f => f.id === activeFunctionId)?.themes || []).find(t => t.id === activeThemeId)}
