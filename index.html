@@ -394,6 +394,9 @@ function MainApp({ user }) {
   const [decorFunctions, setDecorFunctions] = useState([]);
   const [activeFunctionId, setActiveFunctionId] = useState(null);
   const [activeThemeId, setActiveThemeId] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [activeProjectId, setActiveProjectId] = useState(null);
+  const [customerLeads, setCustomerLeads] = useState([]);
   const [cities, setCities] = useState([]);
   const [corpQuotes, setCorpQuotes] = useState([]);
   const [tab, setTab] = useState(isAdmin ? "dashboard" : "hotels");
@@ -427,6 +430,10 @@ function MainApp({ user }) {
       else setIdeas([]);
       if (data && data.decorFunctions) setDecorFunctions(data.decorFunctions);
       else setDecorFunctions([]);
+      if (data && data.projects) setProjects(data.projects);
+      else setProjects([]);
+      if (data && data.customerLeads) setCustomerLeads(data.customerLeads);
+      else setCustomerLeads([]);
       setSharedLoaded(true);
     }, err => {
       console.error(err);
@@ -487,10 +494,10 @@ function MainApp({ user }) {
     if (!loaded) return;
     if (skipNextSharedSave.current) { skipNextSharedSave.current = false; return; }
     setSyncStatus("syncing");
-    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, ideas, decorFunctions }, { merge: true })
+    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, ideas, decorFunctions, projects, customerLeads }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [cities, corpQuotes, activityLog, vendors, ideas, decorFunctions]);
+  }, [cities, corpQuotes, activityLog, vendors, ideas, decorFunctions, projects, customerLeads]);
 
   const logActivity = (what) => {
     const entry = { id: uid(), who: getDeviceUser(), what, when: Date.now() };
@@ -530,6 +537,7 @@ function MainApp({ user }) {
   const fileInputRef = useRef(null);
   const [globalSearch, setGlobalSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activityLogOpen, setActivityLogOpen] = useState(false);
 
   const handleBackup = () => {
     const backup = { categories, budgets, recentItems, cities, corpQuotes, exportedAt: new Date().toISOString() };
@@ -591,6 +599,7 @@ function MainApp({ user }) {
             {isAdmin && <TabBtn active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>Vendors & Artists</TabBtn>}
             {isAdmin && <TabBtn active={tab === "ideas"} onClick={() => setTab("ideas")}>💡 Idea Box</TabBtn>}
             {isAdmin && <TabBtn active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨 Decor</TabBtn>}
+            {isAdmin && <TabBtn active={tab === "projects" || tab === "projectDetail"} onClick={() => setTab("projects")}>📋 Projects</TabBtn>}
           </nav>
           <div style={{ position: "relative", flexShrink: 0 }}>
             <button className="beo-btn" onClick={() => setMenuOpen(!menuOpen)} style={{ background: "#F1EADA", color: "#6B1E23", padding: "9px 12px", fontSize: 16, borderRadius: 8 }} title="Account & data">⋮</button>
@@ -602,6 +611,7 @@ function MainApp({ user }) {
                     <React.Fragment>
                       <div onClick={() => { handleBackup(); setMenuOpen(false); }} style={{ padding: "10px 16px", cursor: "pointer", fontSize: 13.5 }}>⬇ Backup</div>
                       <div onClick={() => { fileInputRef.current && fileInputRef.current.click(); setMenuOpen(false); }} style={{ padding: "10px 16px", cursor: "pointer", fontSize: 13.5, borderTop: "1px solid #F1EADA" }}>⬆ Restore</div>
+                      <div onClick={() => { setActivityLogOpen(true); setMenuOpen(false); }} style={{ padding: "10px 16px", cursor: "pointer", fontSize: 13.5, borderTop: "1px solid #F1EADA" }}>📋 Activity Log</div>
                     </React.Fragment>
                   )}
                   <div onClick={() => auth.signOut()} style={{ padding: "10px 16px", cursor: "pointer", fontSize: 13.5, borderTop: "1px solid #F1EADA", color: "#c9585d" }}>Sign out</div>
@@ -748,7 +758,42 @@ function MainApp({ user }) {
             onChange={(updatedTheme) => setDecorFunctions(prev => prev.map(f => f.id === activeFunctionId ? { ...f, themes: f.themes.map(t => t.id === updatedTheme.id ? updatedTheme : t) } : f))}
           />
         )}
+        {isAdmin && tab === "projects" && (
+          <ProjectsView
+            projects={projects}
+            setProjects={setProjects}
+            customerLeads={customerLeads}
+            setCustomerLeads={setCustomerLeads}
+            onOpen={(id) => { setActiveProjectId(id); setTab("projectDetail"); }}
+            logActivity={logActivity}
+          />
+        )}
+        {isAdmin && tab === "projectDetail" && activeProjectId && (
+          <ProjectDetail
+            project={projects.find(p => p.id === activeProjectId)}
+            onBack={() => setTab("projects")}
+            onChange={(updated) => setProjects(prev => prev.map(p => p.id === updated.id ? updated : p))}
+          />
+        )}
       </div>
+      {activityLogOpen && (
+        <div onClick={() => setActivityLogOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="beo-card" style={{ padding: 24, maxWidth: 600, width: "100%", maxHeight: "80vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23" }}>Activity Log</div>
+              <span onClick={() => setActivityLogOpen(false)} style={{ cursor: "pointer", fontSize: 18, color: "#8a8071" }}>×</span>
+            </div>
+            {(!activityLog || activityLog.length === 0) ? (
+              <div style={{ color: "#a39a89", fontSize: 13.5 }}>No activity logged yet.</div>
+            ) : activityLog.map(a => (
+              <div key={a.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+                <div><b style={{ color: "#6B1E23" }}>{a.who}</b>: {a.what}</div>
+                <span style={{ color: "#a39a89" }}>{new Date(a.when).toLocaleString("en-IN")}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1145,18 +1190,6 @@ function DashboardView({ budgets, onOpen, activityLog }) {
               <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: budgetStatusColor(b.status).bg, color: budgetStatusColor(b.status).fg }}>{b.status || "Lead"}</span>
               <span style={{ fontSize: 12.5, color: "#6B1E23" }}>{b.date}</span>
             </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="beo-card" style={{ padding: 20, marginTop: 16 }}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>Activity Log</div>
-        {(!activityLog || activityLog.length === 0) ? (
-          <div style={{ color: "#a39a89", fontSize: 13.5 }}>No activity logged yet.</div>
-        ) : activityLog.slice(0, 15).map(a => (
-          <div key={a.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
-            <div><b style={{ color: "#6B1E23" }}>{a.who}</b>: {a.what}</div>
-            <span style={{ color: "#a39a89" }}>{new Date(a.when).toLocaleString("en-IN")}</span>
           </div>
         ))}
       </div>
@@ -2878,6 +2911,188 @@ function DecorThemeDetail({ decorFunction, theme, onBack, onChange }) {
         {media.filter(m => m.type === "image").length > 0 && (
           <div style={{ marginBottom: 10 }}>
             {media.filter(m => m.type === "image").map(m => (
+              <div key={"rm-" + m.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#8a8071", padding: "2px 0" }}>
+                <span>{m.name || "Photo"}</span>
+                <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeMedia(m.id)}>🗑 remove</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <label className="beo-btn beo-btn-primary" style={{ cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.6 : 1 }}>
+          {uploading ? "Uploading…" : "⬆ Upload photos, videos, or PDFs from PC"}
+          <input type="file" accept="image/*,video/*,application/pdf" multiple onChange={uploadMedia} disabled={uploading} style={{ display: "none" }} />
+        </label>
+        {uploadError && <div style={{ color: "#c9585d", fontSize: 12, marginTop: 10 }}>{uploadError}</div>}
+      </div>
+
+      {lightboxIdx !== null && (
+        <div onClick={() => setLightboxIdx(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, cursor: "pointer" }}>
+          <img src={photoUrlOf(images[lightboxIdx])} alt="" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectsView({ projects, setProjects, customerLeads, setCustomerLeads, onOpen, logActivity }) {
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newLeadName, setNewLeadName] = useState("");
+  const [newLeadPhone, setNewLeadPhone] = useState("");
+
+  const addProject = () => {
+    if (!newProjectName.trim()) return;
+    const p = { id: uid(), name: newProjectName.trim(), description: "", costMin: 0, costMax: 0, media: [] };
+    setProjects(prev => [...prev, p]);
+    if (logActivity) logActivity(`Added project "${p.name}"`);
+    setNewProjectName("");
+  };
+  const removeProject = (id) => setProjects(prev => prev.filter(p => p.id !== id));
+
+  const addLead = () => {
+    if (!newLeadName.trim()) return;
+    setCustomerLeads(prev => [{ id: uid(), name: newLeadName.trim(), phone: newLeadPhone.trim() }, ...prev]);
+    setNewLeadName(""); setNewLeadPhone("");
+  };
+  const removeLead = (id) => setCustomerLeads(prev => prev.filter(l => l.id !== id));
+
+  return (
+    <div className="two-col">
+      <div>
+        <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>Projects</div>
+        <div style={{ fontSize: 12.5, color: "#8a8071", marginBottom: 14 }}>One-time event formats — Brij Bhojan, Candlelight Dinner, Comedy Shows, Round Tables, etc.</div>
+
+        <div className="beo-card" style={{ padding: 14, marginBottom: 16, display: "flex", gap: 8 }}>
+          <input className="beo-input" placeholder="New project name (e.g. Brij Bhojan)" value={newProjectName} onChange={e => setNewProjectName(e.target.value)} onKeyDown={e => e.key === "Enter" && addProject()} />
+          <button className="beo-btn beo-btn-primary" onClick={addProject}>＋ Add</button>
+        </div>
+
+        {projects.length === 0 ? (
+          <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>No projects yet.</div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
+            {projects.map(p => (
+              <div key={p.id} className="beo-card" style={{ padding: 14, cursor: "pointer", position: "relative" }} onClick={() => onOpen(p.id)}>
+                {p.media && p.media.find(m => m.type === "image") && (
+                  <img src={photoUrlOf(p.media.find(m => m.type === "image"))} alt="" style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />
+                )}
+                <div style={{ fontWeight: 700, fontSize: 14.5 }}>{p.name}</div>
+                {(p.costMin || p.costMax) ? <div style={{ fontSize: 12, color: "#8a8071", marginTop: 3 }}>{inr(p.costMin)} – {inr(p.costMax)}</div> : <div style={{ fontSize: 11.5, color: "#a39a89", marginTop: 3 }}>No costing added</div>}
+                <span style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeProject(p.id); }}>🗑</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>Customer Database</div>
+        <div className="beo-card" style={{ padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: "#8a8071", marginBottom: 10 }}>Potential clients interested in these event types.</div>
+          <input className="beo-input" placeholder="Name" value={newLeadName} onChange={e => setNewLeadName(e.target.value)} style={{ marginBottom: 8 }} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <input className="beo-input" placeholder="Phone number" value={newLeadPhone} onChange={e => setNewLeadPhone(e.target.value)} onKeyDown={e => e.key === "Enter" && addLead()} />
+            <button className="beo-btn beo-btn-primary" onClick={addLead}>＋</button>
+          </div>
+        </div>
+        <div className="beo-card" style={{ padding: 14 }}>
+          {customerLeads.length === 0 ? (
+            <div style={{ color: "#a39a89", fontSize: 13 }}>No customer leads yet.</div>
+          ) : customerLeads.map(l => (
+            <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 13.5 }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>{l.name}</div>
+                <div style={{ fontSize: 12, color: "#8a8071" }}>{l.phone}</div>
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                {l.phone && <a href={waLink(l.phone)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2E7D32", fontWeight: 600, textDecoration: "none" }}>💬</a>}
+                <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeLead(l.id)}>🗑</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectDetail({ project, onBack, onChange }) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [lightboxIdx, setLightboxIdx] = useState(null);
+
+  if (!project) return null;
+  const update = (patch) => onChange({ ...project, ...patch });
+  const media = project.media || [];
+
+  const uploadMedia = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    setUploadError(""); setUploading(true);
+    try {
+      const newItems = [];
+      for (const file of files) {
+        const type = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "pdf";
+        const path = `projects/${project.id}/${Date.now()}_${file.name}`;
+        const ref = window.__storage.ref().child(path);
+        await ref.put(file);
+        const url = await ref.getDownloadURL();
+        newItems.push({ id: uid(), type, url, storagePath: path, name: file.name });
+      }
+      update({ media: [...media, ...newItems] });
+    } catch (err) { setUploadError("Upload failed: " + err.message); }
+    setUploading(false);
+  };
+  const removeMedia = (id) => {
+    const target = media.find(m => m.id === id);
+    if (target && target.storagePath) window.__storage.ref().child(target.storagePath).delete().catch(() => {});
+    update({ media: media.filter(m => m.id !== id) });
+  };
+
+  const images = media.filter(m => m.type === "image");
+
+  return (
+    <div>
+      <button className="beo-btn beo-btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>← Back to Projects</button>
+      <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+        <input className="beo-input beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 12, border: "none", padding: "4px 0" }} value={project.name} onChange={e => update({ name: e.target.value })} />
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Description</label>
+        <textarea className="beo-input" rows={3} value={project.description || ""} onChange={e => update({ description: e.target.value })} style={{ marginTop: 4, marginBottom: 12, resize: "vertical", fontFamily: "inherit" }} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Cost from (₹)</label>
+            <input className="beo-input" type="number" value={nz(project.costMin)} onChange={e => update({ costMin: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Cost to (₹)</label>
+            <input className="beo-input" type="number" value={nz(project.costMax)} onChange={e => update({ costMax: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} />
+          </div>
+        </div>
+      </div>
+
+      <div className="beo-card" style={{ padding: 20 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Media ({media.length})</div>
+        {images.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            {images.map((m, i) => (
+              <img key={m.id} src={photoUrlOf(m)} alt="" onClick={() => setLightboxIdx(i)} style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 8, cursor: "pointer" }} onError={e => e.target.style.opacity = 0.2} />
+            ))}
+          </div>
+        )}
+        {media.filter(m => m.type === "video").map(m => (
+          <div key={m.id} style={{ marginBottom: 14 }}>
+            <video src={m.url} controls style={{ width: "100%", maxWidth: 400, borderRadius: 8 }} />
+          </div>
+        ))}
+        {media.filter(m => m.type !== "video" && m.type !== "image").map(m => (
+          <div key={m.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 13.5 }}>
+            <a href={m.url} target="_blank" rel="noreferrer" style={{ color: "#6B1E23", fontWeight: 600, textDecoration: "none" }}>📄 {m.name}</a>
+            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeMedia(m.id)}>🗑</span>
+          </div>
+        ))}
+        {images.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            {images.map(m => (
               <div key={"rm-" + m.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#8a8071", padding: "2px 0" }}>
                 <span>{m.name || "Photo"}</span>
                 <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeMedia(m.id)}>🗑 remove</span>
