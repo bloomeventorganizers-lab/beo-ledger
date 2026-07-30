@@ -923,7 +923,18 @@ function MainApp({ user }) {
   })();
 
   return (
-    <div style={{ minHeight: "100vh" }}>
+    <div style={{ display: "flex", minHeight: "100vh" }}>
+      {isAdmin && (
+        <div style={{ width: 56, flexShrink: 0, background: "#FAF3E3", borderRight: "1px solid #EDE6D6", display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 16, gap: 6 }}>
+          <SidebarIcon title="Quick Quote" active={tab === "quickquote"} onClick={() => setTab("quickquote")}>⚡</SidebarIcon>
+          <SidebarIcon title="Vendors & Artists" active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>👥</SidebarIcon>
+          <SidebarIcon title="Idea Box" active={tab === "ideas"} onClick={() => setTab("ideas")}>💡</SidebarIcon>
+          <SidebarIcon title="Decor" active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨</SidebarIcon>
+          <SidebarIcon title="Projects" active={tab === "projects" || tab === "projectDetail"} onClick={() => setTab("projects")}>📋</SidebarIcon>
+          <SidebarIcon title="Proposals" active={tab === "proposals" || tab === "proposalBuilder"} onClick={() => setTab("proposals")}>✦</SidebarIcon>
+        </div>
+      )}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       <div style={{ borderBottom: "1px solid #EDE6D6", background: "#fff", padding: "18px 20px", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23" }}>The Executive Events</div>
@@ -934,16 +945,10 @@ function MainApp({ user }) {
         <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, justifyContent: "flex-end", minWidth: 0 }}>
           <nav className="beo-nav-scroll" style={{ display: "flex", gap: 4, alignItems: "center", overflowX: "auto", maxWidth: "100%" }}>
             {isAdmin && <TabBtn active={tab === "dashboard"} onClick={() => setTab("dashboard")}>Dashboard</TabBtn>}
-            {isAdmin && <TabBtn active={tab === "quickquote"} onClick={() => setTab("quickquote")}>⚡ Quick Quote</TabBtn>}
             {isAdmin && <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>}
             {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
             <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
             <TabBtn active={tab === "quotes" || tab === "quoteBuilder"} onClick={() => setTab("quotes")}>Corporate Quotes</TabBtn>
-            {isAdmin && <TabBtn active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>Vendors & Artists</TabBtn>}
-            {isAdmin && <TabBtn active={tab === "ideas"} onClick={() => setTab("ideas")}>💡 Idea Box</TabBtn>}
-            {isAdmin && <TabBtn active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨 Decor</TabBtn>}
-            {isAdmin && <TabBtn active={tab === "projects" || tab === "projectDetail"} onClick={() => setTab("projects")}>📋 Projects</TabBtn>}
-            {isAdmin && <TabBtn active={tab === "proposals" || tab === "proposalBuilder"} onClick={() => setTab("proposals")}>✦ Proposals</TabBtn>}
           </nav>
           <div style={{ position: "relative", flexShrink: 0 }}>
             <button className="beo-btn" onClick={() => setMenuOpen(!menuOpen)} style={{ background: "#F1EADA", color: "#6B1E23", padding: "9px 12px", fontSize: 16, borderRadius: 8 }} title="Account & data">⋮</button>
@@ -1138,6 +1143,7 @@ function MainApp({ user }) {
           />
         )}
       </div>
+      </div>
       {companySettingsOpen && (
         <div onClick={() => setCompanySettingsOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} className="beo-card" style={{ padding: 24, maxWidth: 560, width: "100%", maxHeight: "85vh", overflowY: "auto" }}>
@@ -1177,6 +1183,25 @@ function TabBtn({ active, onClick, children }) {
         background: active ? "#FAF3E3" : "transparent", color: active ? "#6B1E23" : "#7d7568",
         fontWeight: active ? 700 : 500, borderBottom: active ? "2px solid #B8934A" : "2px solid transparent"
       }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SidebarIcon({ title, active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        width: 40, height: 40, borderRadius: 8, border: "none", cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19,
+        background: active ? "#6B1E23" : "transparent", color: active ? "#FAF6EE" : "#6B1E23",
+        transition: "background 0.15s ease"
+      }}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "#F1EADA"; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
     >
       {children}
     </button>
