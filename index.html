@@ -879,6 +879,7 @@ function MainApp({ user }) {
   const fileInputRef = useRef(null);
   const [globalSearch, setGlobalSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [activityLogOpen, setActivityLogOpen] = useState(false);
   const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
 
@@ -925,13 +926,20 @@ function MainApp({ user }) {
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       {isAdmin && (
-        <div style={{ width: 56, flexShrink: 0, background: "#FAF3E3", borderRight: "1px solid #EDE6D6", display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 16, gap: 6 }}>
-          <SidebarIcon title="Quick Quote" active={tab === "quickquote"} onClick={() => setTab("quickquote")}>⚡</SidebarIcon>
-          <SidebarIcon title="Vendors & Artists" active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>👥</SidebarIcon>
-          <SidebarIcon title="Idea Box" active={tab === "ideas"} onClick={() => setTab("ideas")}>💡</SidebarIcon>
-          <SidebarIcon title="Decor" active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨</SidebarIcon>
-          <SidebarIcon title="Projects" active={tab === "projects" || tab === "projectDetail"} onClick={() => setTab("projects")}>📋</SidebarIcon>
-          <SidebarIcon title="Proposals" active={tab === "proposals" || tab === "proposalBuilder"} onClick={() => setTab("proposals")}>✦</SidebarIcon>
+        <div style={{ width: sidebarExpanded ? 190 : 56, flexShrink: 0, background: "#FAF3E3", borderRight: "1px solid #EDE6D6", display: "flex", flexDirection: "column", alignItems: sidebarExpanded ? "stretch" : "center", paddingTop: 16, paddingLeft: sidebarExpanded ? 8 : 0, paddingRight: sidebarExpanded ? 8 : 0, gap: 4, transition: "width 0.18s ease", overflow: "hidden" }}>
+          <button
+            onClick={() => setSidebarExpanded(!sidebarExpanded)}
+            title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+            style={{ width: sidebarExpanded ? "100%" : 40, height: 40, borderRadius: 8, border: "none", cursor: "pointer", background: "transparent", color: "#6B1E23", fontSize: 18, display: "flex", alignItems: "center", justifyContent: sidebarExpanded ? "flex-start" : "center", gap: 10, paddingLeft: sidebarExpanded ? 8 : 0, marginBottom: 8 }}
+          >
+            ☰
+          </button>
+          <SidebarIcon expanded={sidebarExpanded} label="Quick Quote" title="Quick Quote" active={tab === "quickquote"} onClick={() => setTab("quickquote")}>⚡</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Vendors & Artists" title="Vendors & Artists" active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>👥</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Idea Box" title="Idea Box" active={tab === "ideas"} onClick={() => setTab("ideas")}>💡</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Decor" title="Decor" active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Projects" title="Projects" active={tab === "projects" || tab === "projectDetail"} onClick={() => setTab("projects")}>📋</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Proposals" title="Proposals" active={tab === "proposals" || tab === "proposalBuilder"} onClick={() => setTab("proposals")}>✦</SidebarIcon>
         </div>
       )}
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
@@ -974,7 +982,7 @@ function MainApp({ user }) {
       </div>
       {isAdmin && (
         <div style={{ borderBottom: "1px solid #EDE6D6", background: "#fff", padding: "10px 20px" }}>
-          <div style={{ maxWidth: 1200, margin: "0 auto", position: "relative" }}>
+          <div style={{ maxWidth: 1600, margin: "0 auto", position: "relative" }}>
             <input
               className="beo-input"
               placeholder="🔍 Search across Hotels, Client Budgets & Corporate Quotes…"
@@ -1021,7 +1029,7 @@ function MainApp({ user }) {
           </div>
         </div>
       )}
-      <div style={{ padding: 20, maxWidth: 1200, margin: "0 auto" }}>
+      <div style={{ padding: 20, maxWidth: 1600, margin: "0 auto" }}>
         {isAdmin && tab === "dashboard" && <DashboardView budgets={budgets} onOpen={openBudget} activityLog={activityLog} />}
         {isAdmin && tab === "quickquote" && (
           <QuickQuoteView
@@ -1189,21 +1197,23 @@ function TabBtn({ active, onClick, children }) {
   );
 }
 
-function SidebarIcon({ title, active, onClick, children }) {
+function SidebarIcon({ title, label, expanded, active, onClick, children }) {
   return (
     <button
       onClick={onClick}
       title={title}
       style={{
-        width: 40, height: 40, borderRadius: 8, border: "none", cursor: "pointer",
-        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19,
+        width: expanded ? "100%" : 40, height: 40, borderRadius: 8, border: "none", cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: expanded ? "flex-start" : "center",
+        gap: 10, paddingLeft: expanded ? 10 : 0, fontSize: 19, flexShrink: 0,
         background: active ? "#6B1E23" : "transparent", color: active ? "#FAF6EE" : "#6B1E23",
         transition: "background 0.15s ease"
       }}
       onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "#F1EADA"; }}
       onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
     >
-      {children}
+      <span style={{ flexShrink: 0 }}>{children}</span>
+      {expanded && <span style={{ fontSize: 13.5, fontWeight: active ? 700 : 500, whiteSpace: "nowrap" }}>{label}</span>}
     </button>
   );
 }
@@ -1376,7 +1386,7 @@ function QuickQuoteView({ categories, onSave }) {
       </div>
 
       <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#fff", borderTop: "2px solid #E4DCC8", padding: "14px 20px", boxShadow: "0 -4px 20px rgba(0,0,0,0.08)", zIndex: 100 }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+        <div style={{ maxWidth: 1600, margin: "0 auto" }}>
           {selected.length > 0 && (
             <div style={{ display: "flex", gap: 10, overflowX: "auto", marginBottom: 10, paddingBottom: 4 }}>
               {selected.map(l => (
