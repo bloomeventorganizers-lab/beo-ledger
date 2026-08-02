@@ -611,16 +611,18 @@ const photoUrlOf = (p) => (p && typeof p === "object" ? p.url : p);
 
 function App() {
   const shareId = new URLSearchParams(window.location.search).get("share");
+  const menuId = new URLSearchParams(window.location.search).get("menu");
   const [user, setUser] = useState(undefined);
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
-    if (shareId) return;
+    if (shareId || menuId) return;
     const unsub = auth.onAuthStateChanged(u => setUser(u || null));
     return unsub;
   }, []);
 
   if (shareId) return <PublicQuoteView shareId={shareId} />;
+  if (menuId) return <PublicMenuView menuId={menuId} />;
   if (user === undefined) return <div style={{ padding: 40, color: "#6b1e23" }}>Checking sign-in…</div>;
   if (user === null) return <LoginScreen onError={setAuthError} error={authError} />;
   return <MainApp user={user} />;
@@ -684,6 +686,116 @@ function PublicQuoteView({ shareId }) {
   );
 }
 
+function PublicMenuView({ menuId }) {
+  const [data, setData] = useState(undefined);
+  const [selections, setSelections] = useState({});
+  const [clientName, setClientName] = useState("");
+  const [suggestions, setSuggestions] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    db.collection("publicMenus").doc(menuId).get()
+      .then(snap => setData(snap.exists ? snap.data() : null))
+      .catch(() => setData(null));
+  }, [menuId]);
+
+  if (data === undefined) return <div style={{ padding: 40, textAlign: "center", color: "#6b1e23" }}>Loading menu…</div>;
+  if (data === null) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This menu link is invalid or no longer available.</div>;
+
+  const toggleItem = (section, itemName) => {
+    setSelections(prev => {
+      const current = prev[section.id] || [];
+      const isSelected = current.includes(itemName);
+      if (isSelected) return { ...prev, [section.id]: current.filter(n => n !== itemName) };
+      if (section.selectLimit && current.length >= section.selectLimit) return prev;
+      return { ...prev, [section.id]: [...current, itemName] };
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (!clientName.trim()) { setErrorMsg("Please enter your name before submitting."); return; }
+    setErrorMsg("");
+    setSubmitting(true);
+    try {
+      const namedSelections = {};
+      (data.sections || []).forEach(s => {
+        namedSelections[s.name] = selections[s.id] || [];
+      });
+      await db.collection("menuResponses").add({
+        templateShareId: menuId,
+        clientName: clientName.trim(),
+        selections: namedSelections,
+        suggestions: suggestions.trim(),
+        submittedAt: Date.now()
+      });
+      setSubmitted(true);
+    } catch (e) {
+      setErrorMsg("Could not submit — please check your connection and try again.");
+    }
+    setSubmitting(false);
+  };
+
+  if (submitted) {
+    return (
+      <div style={{ maxWidth: 600, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+        <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700, color: "#6B1E23", marginBottom: 12 }}>Thank you!</div>
+        <div style={{ fontSize: 14, color: "#333" }}>Your menu selection has been submitted successfully. Our team will be in touch shortly.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 700, margin: "0 auto", padding: "36px 20px 100px" }}>
+      <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 4 }}>{data.name}</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", textAlign: "center", marginBottom: 24 }}>Select your items below, then submit — you can pick up to the limit shown for each section.</div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 20 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Your Name</label>
+        <input className="beo-input" value={clientName} onChange={e => setClientName(e.target.value)} style={{ marginTop: 4 }} />
+      </div>
+
+      {(data.sections || []).map(s => {
+        const current = selections[s.id] || [];
+        return (
+          <div key={s.id} className="beo-card" style={{ padding: 18, marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div className="beo-serif" style={{ fontSize: 16, fontWeight: 700, color: "#6B1E23" }}>{s.name}</div>
+              <div style={{ fontSize: 11.5, color: current.length >= s.selectLimit ? "#2E7D32" : "#8a8071", fontWeight: 600 }}>{current.length} / {s.selectLimit} selected</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
+              {(s.items || []).map(it => {
+                const checked = current.includes(it.name);
+                const disabled = !checked && s.selectLimit && current.length >= s.selectLimit;
+                return (
+                  <label key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "6px 8px", borderRadius: 6, background: checked ? "#F3EBD8" : "transparent", opacity: disabled ? 0.4 : 1, cursor: disabled ? "not-allowed" : "pointer" }}>
+                    <input type="checkbox" checked={checked} disabled={disabled} onChange={() => toggleItem(s, it.name)} />
+                    <span>{it.name}{s.isLiveCounter && it.price ? ` — ₹${it.price}/pax` : ""}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="beo-card" style={{ padding: 18, marginBottom: 20 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>Suggestions / items not on this menu</div>
+        <textarea className="beo-input" rows={3} placeholder="Anything else you'd like to add or request…" value={suggestions} onChange={e => setSuggestions(e.target.value)} style={{ resize: "vertical", fontFamily: "inherit" }} />
+      </div>
+
+      {errorMsg && <div style={{ color: "#c9585d", fontSize: 13, textAlign: "center", marginBottom: 14 }}>{errorMsg}</div>}
+
+      <div style={{ textAlign: "center" }}>
+        <button className="beo-btn beo-btn-primary" disabled={submitting} onClick={handleSubmit} style={{ padding: "12px 32px", fontSize: 15 }}>
+          {submitting ? "Submitting…" : "Submit Selection"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ onError, error }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -725,6 +837,8 @@ function MainApp({ user }) {
   const [proposals, setProposals] = useState([]);
   const [activeProposalId, setActiveProposalId] = useState(null);
   const [companySettings, setCompanySettings] = useState({});
+  const [cateringTemplates, setCateringTemplates] = useState([]);
+  const [activeCateringId, setActiveCateringId] = useState(null);
   const [activityLog, setActivityLog] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [activeVendorId, setActiveVendorId] = useState(null);
@@ -799,6 +913,8 @@ function MainApp({ user }) {
       else setProposals([]);
       if (data && data.companySettings) setCompanySettings(data.companySettings);
       else setCompanySettings({});
+      if (data && data.cateringTemplates) setCateringTemplates(data.cateringTemplates);
+      else setCateringTemplates([]);
       setPersonalLoaded(true);
 
       // One-time migration: if old personal doc still has cities/corpQuotes and the
@@ -827,10 +943,10 @@ function MainApp({ user }) {
     if (!loaded || !isAdmin) return;
     if (skipNextPersonalSave.current) { skipNextPersonalSave.current = false; return; }
     setSyncStatus("syncing");
-    personalDocRef.set({ categories, budgets, recentItems, bundles, proposals, companySettings }, { merge: true })
+    personalDocRef.set({ categories, budgets, recentItems, bundles, proposals, companySettings, cateringTemplates }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [categories, budgets, recentItems, bundles, proposals, companySettings]);
+  }, [categories, budgets, recentItems, bundles, proposals, companySettings, cateringTemplates]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -940,6 +1056,7 @@ function MainApp({ user }) {
           <SidebarIcon expanded={sidebarExpanded} label="Decor" title="Decor" active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Projects" title="Projects" active={tab === "projects" || tab === "projectDetail"} onClick={() => setTab("projects")}>📋</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Proposals" title="Proposals" active={tab === "proposals" || tab === "proposalBuilder"} onClick={() => setTab("proposals")}>✦</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Catering" title="Catering" active={tab === "catering" || tab === "cateringDetail"} onClick={() => setTab("catering")}>🍽️</SidebarIcon>
           <div style={{ flex: 1 }}></div>
           <div style={{ position: "relative", marginBottom: 16 }}>
             <button
@@ -1159,6 +1276,21 @@ function MainApp({ user }) {
             companySettings={companySettings}
             onBack={() => setTab("proposals")}
             onChange={(updated) => setProposals(prev => prev.map(p => p.id === updated.id ? updated : p))}
+          />
+        )}
+        {isAdmin && tab === "catering" && (
+          <CateringListView
+            templates={cateringTemplates}
+            setTemplates={setCateringTemplates}
+            onOpen={(id) => { setActiveCateringId(id); setTab("cateringDetail"); }}
+            logActivity={logActivity}
+          />
+        )}
+        {isAdmin && tab === "cateringDetail" && activeCateringId && (
+          <CateringTemplateDetail
+            template={cateringTemplates.find(t => t.id === activeCateringId)}
+            onBack={() => setTab("catering")}
+            onChange={(updated) => setCateringTemplates(prev => prev.map(t => t.id === updated.id ? updated : t))}
           />
         )}
       </div>
@@ -3944,6 +4076,200 @@ function ProposalBuilder({ proposal, budgets, companySettings, onBack, onChange 
           <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={addPayment}>＋ Add Payment Milestone</button>
         </React.Fragment>
       ))}
+    </div>
+  );
+}
+
+function CateringListView({ templates, setTemplates, onOpen, logActivity }) {
+  const [newName, setNewName] = useState("");
+
+  const addTemplate = () => {
+    if (!newName.trim()) return;
+    const t = { id: uid(), name: newName.trim(), sections: [], shareId: "" };
+    setTemplates(prev => [t, ...prev]);
+    if (logActivity) logActivity(`Created catering menu template "${t.name}"`);
+    setNewName("");
+    onOpen(t.id);
+  };
+  const duplicateTemplate = (t) => {
+    const copy = { ...t, id: uid(), name: t.name + " (copy)", shareId: "" };
+    setTemplates(prev => [copy, ...prev]);
+  };
+  const removeTemplate = (id) => setTemplates(prev => prev.filter(t => t.id !== id));
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 6 }}>🍽️ Catering Menus</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", marginBottom: 16 }}>Build named menu templates (Premium, Standard, etc.) and share a link so clients can select items directly.</div>
+
+      <div className="beo-card" style={{ padding: 14, marginBottom: 18, display: "flex", gap: 8 }}>
+        <input className="beo-input" placeholder="New template name (e.g. Premium Menu)" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addTemplate()} />
+        <button className="beo-btn beo-btn-primary" onClick={addTemplate}>＋ Add</button>
+      </div>
+
+      {templates.length === 0 ? (
+        <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>No menu templates yet.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+          {templates.map(t => (
+            <div key={t.id} className="beo-card" style={{ padding: 16, cursor: "pointer", position: "relative" }} onClick={() => onOpen(t.id)}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{t.name}</div>
+              <div style={{ fontSize: 12, color: "#8a8071", marginTop: 4 }}>{(t.sections || []).length} section{(t.sections || []).length === 1 ? "" : "s"}</div>
+              {t.shareId && <div style={{ fontSize: 11, color: "#2E7D32", marginTop: 4 }}>🔗 Shared</div>}
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11 }} onClick={(e) => { e.stopPropagation(); duplicateTemplate(t); }}>Duplicate</button>
+                <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, color: "#c9585d" }} onClick={(e) => { e.stopPropagation(); removeTemplate(t.id); }}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CateringTemplateDetail({ template, onBack, onChange }) {
+  const [newSectionName, setNewSectionName] = useState("");
+  const [itemDraft, setItemDraft] = useState({});
+  const [priceDraft, setPriceDraft] = useState({});
+  const [sharing, setSharing] = useState(false);
+  const [responses, setResponses] = useState([]);
+  const [responsesLoading, setResponsesLoading] = useState(true);
+
+  useEffect(() => {
+    if (!template || !template.shareId) { setResponses([]); setResponsesLoading(false); return; }
+    setResponsesLoading(true);
+    const unsub = db.collection("menuResponses").where("templateShareId", "==", template.shareId).onSnapshot(snap => {
+      const list = [];
+      snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+      list.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+      setResponses(list);
+      setResponsesLoading(false);
+    }, () => setResponsesLoading(false));
+    return unsub;
+  }, [template && template.shareId]);
+
+  if (!template) return null;
+  const update = (patch) => onChange({ ...template, ...patch });
+  const sections = template.sections || [];
+
+  const addSection = () => {
+    if (!newSectionName.trim()) return;
+    update({ sections: [...sections, { id: uid(), name: newSectionName.trim(), selectLimit: 1, isLiveCounter: false, items: [] }] });
+    setNewSectionName("");
+  };
+  const updateSection = (id, patch) => update({ sections: sections.map(s => s.id === id ? { ...s, ...patch } : s) });
+  const removeSection = (id) => update({ sections: sections.filter(s => s.id !== id) });
+
+  const addItem = (sectionId) => {
+    const name = (itemDraft[sectionId] || "").trim();
+    if (!name) return;
+    const price = Number(priceDraft[sectionId]) || 0;
+    update({ sections: sections.map(s => s.id === sectionId ? { ...s, items: [...s.items, { id: uid(), name, price }] } : s) });
+    setItemDraft(prev => ({ ...prev, [sectionId]: "" }));
+    setPriceDraft(prev => ({ ...prev, [sectionId]: "" }));
+  };
+  const removeItem = (sectionId, itemId) => {
+    update({ sections: sections.map(s => s.id === sectionId ? { ...s, items: s.items.filter(i => i.id !== itemId) } : s) });
+  };
+
+  const getOrCreateShareLink = async () => {
+    setSharing(true);
+    const id = template.shareId || uid();
+    try {
+      await db.collection("publicMenus").doc(id).set({
+        name: template.name,
+        sections: sections.map(s => ({ id: s.id, name: s.name, selectLimit: s.selectLimit, isLiveCounter: !!s.isLiveCounter, items: s.items })),
+        updatedAt: Date.now()
+      });
+      if (!template.shareId) update({ shareId: id });
+      setSharing(false);
+      return `${window.location.origin}${window.location.pathname}?menu=${id}`;
+    } catch (e) {
+      setSharing(false);
+      alert("Could not create share link: " + e.message);
+      return null;
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <button className="beo-btn beo-btn-ghost" onClick={onBack}>← Back to Catering Menus</button>
+        <button
+          className="beo-btn beo-btn-gold"
+          disabled={sharing}
+          onClick={async () => {
+            const url = await getOrCreateShareLink();
+            if (url) { navigator.clipboard.writeText(url); alert("Shareable link copied to clipboard:\n\n" + url); }
+          }}
+        >{sharing ? "Generating…" : "🔗 Get / Update Shareable Link"}</button>
+      </div>
+
+      <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+        <input className="beo-input beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", border: "none", padding: "4px 0" }} value={template.name} onChange={e => update({ name: e.target.value })} />
+        {template.shareId && <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 6 }}>Note: if you edit sections/items after sharing, click "Get / Update Shareable Link" again to push the changes to the live link.</div>}
+      </div>
+
+      {sections.map(s => (
+        <div key={s.id} className="beo-card" style={{ padding: 18, marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+            <input className="beo-input" value={s.name} onChange={e => updateSection(s.id, { name: e.target.value })} style={{ flex: "1 1 160px", fontWeight: 700 }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <label style={{ fontSize: 11.5, color: "#8a8071" }}>Select</label>
+              <input className="beo-input" type="number" value={nz(s.selectLimit)} onChange={e => updateSection(s.id, { selectLimit: Number(e.target.value) || 0 })} style={{ width: 60, padding: "5px 6px" }} />
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+              <input type="checkbox" checked={!!s.isLiveCounter} onChange={e => updateSection(s.id, { isLiveCounter: e.target.checked })} /> Live counter (paid per pax)
+            </label>
+            <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, color: "#c9585d" }} onClick={() => removeSection(s.id)}>Delete section</button>
+          </div>
+
+          {s.items.length === 0 ? (
+            <div style={{ color: "#a39a89", fontSize: 12.5, marginBottom: 10 }}>No items yet.</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: s.isLiveCounter ? "1fr 90px 24px" : "1fr 24px", gap: 8, marginBottom: 10 }}>
+              {s.items.map(it => (
+                <React.Fragment key={it.id}>
+                  <div style={{ fontSize: 13, padding: "4px 0" }}>{it.name}</div>
+                  {s.isLiveCounter && <div style={{ fontSize: 12, color: "#8a8071" }}>{inr(it.price)}/pax</div>}
+                  <span onClick={() => removeItem(s.id, it.id)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span>
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 6 }}>
+            <input className="beo-input" placeholder="New item name" value={itemDraft[s.id] || ""} onChange={e => setItemDraft(prev => ({ ...prev, [s.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && addItem(s.id)} />
+            {s.isLiveCounter && <input className="beo-input" type="number" placeholder="₹/pax" value={priceDraft[s.id] || ""} onChange={e => setPriceDraft(prev => ({ ...prev, [s.id]: e.target.value }))} style={{ width: 90 }} />}
+            <button className="beo-btn beo-btn-primary" onClick={() => addItem(s.id)}>＋</button>
+          </div>
+        </div>
+      ))}
+
+      <div className="beo-card" style={{ padding: 14, marginBottom: 20, display: "flex", gap: 8 }}>
+        <input className="beo-input" placeholder="New section name (e.g. Starters)" value={newSectionName} onChange={e => setNewSectionName(e.target.value)} onKeyDown={e => e.key === "Enter" && addSection()} />
+        <button className="beo-btn beo-btn-primary" onClick={addSection}>＋ Add Section</button>
+      </div>
+
+      {template.shareId && (
+        <div className="beo-card" style={{ padding: 20 }}>
+          <div className="beo-serif" style={{ fontSize: 18, fontWeight: 700, color: "#6B1E23", marginBottom: 12 }}>Client Selections</div>
+          {responsesLoading ? (
+            <div style={{ color: "#a39a89", fontSize: 13 }}>Loading…</div>
+          ) : responses.length === 0 ? (
+            <div style={{ color: "#a39a89", fontSize: 13 }}>No submissions yet. Once a client submits their selection through the shared link, it'll appear here.</div>
+          ) : responses.map(r => (
+            <div key={r.id} style={{ padding: "12px 0", borderTop: "1px solid #F1EADA" }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{r.clientName || "Unnamed client"}</div>
+              <div style={{ fontSize: 11.5, color: "#8a8071", marginBottom: 8 }}>{r.submittedAt ? new Date(r.submittedAt).toLocaleString("en-IN") : ""}</div>
+              {Object.entries(r.selections || {}).map(([sectionName, items]) => (
+                items.length > 0 && <div key={sectionName} style={{ fontSize: 12.5, marginBottom: 3 }}><b>{sectionName}:</b> {items.join(", ")}</div>
+              ))}
+              {r.suggestions && <div style={{ fontSize: 12.5, marginTop: 6, fontStyle: "italic", color: "#6B1E23" }}>Suggestions: {r.suggestions}</div>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
