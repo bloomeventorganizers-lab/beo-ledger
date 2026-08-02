@@ -4132,6 +4132,8 @@ function CateringTemplateDetail({ template, onBack, onChange }) {
   const [newSectionName, setNewSectionName] = useState("");
   const [itemDraft, setItemDraft] = useState({});
   const [priceDraft, setPriceDraft] = useState({});
+  const [bulkDraft, setBulkDraft] = useState({});
+  const [bulkOpenFor, setBulkOpenFor] = useState(null);
   const [sharing, setSharing] = useState(false);
   const [responses, setResponses] = useState([]);
   const [responsesLoading, setResponsesLoading] = useState(true);
@@ -4171,6 +4173,18 @@ function CateringTemplateDetail({ template, onBack, onChange }) {
   };
   const removeItem = (sectionId, itemId) => {
     update({ sections: sections.map(s => s.id === sectionId ? { ...s, items: s.items.filter(i => i.id !== itemId) } : s) });
+  };
+
+  const addBulkItems = (sectionId) => {
+    const text = bulkDraft[sectionId] || "";
+    // Split on newlines or commas, trim, drop empties, drop exact duplicates already in the section
+    const existing = new Set((sections.find(s => s.id === sectionId)?.items || []).map(i => i.name.trim().toLowerCase()));
+    const names = text.split(/[\n,]+/).map(n => n.trim()).filter(n => n && !existing.has(n.toLowerCase()));
+    if (names.length === 0) return;
+    const newItems = names.map(name => ({ id: uid(), name, price: 0 }));
+    update({ sections: sections.map(s => s.id === sectionId ? { ...s, items: [...s.items, ...newItems] } : s) });
+    setBulkDraft(prev => ({ ...prev, [sectionId]: "" }));
+    setBulkOpenFor(null);
   };
 
   const getOrCreateShareLink = async () => {
@@ -4242,7 +4256,21 @@ function CateringTemplateDetail({ template, onBack, onChange }) {
             <input className="beo-input" placeholder="New item name" value={itemDraft[s.id] || ""} onChange={e => setItemDraft(prev => ({ ...prev, [s.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && addItem(s.id)} />
             {s.isLiveCounter && <input className="beo-input" type="number" placeholder="₹/pax" value={priceDraft[s.id] || ""} onChange={e => setPriceDraft(prev => ({ ...prev, [s.id]: e.target.value }))} style={{ width: 90 }} />}
             <button className="beo-btn beo-btn-primary" onClick={() => addItem(s.id)}>＋</button>
+            <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12, whiteSpace: "nowrap" }} onClick={() => setBulkOpenFor(bulkOpenFor === s.id ? null : s.id)}>📋 Paste multiple</button>
           </div>
+          {bulkOpenFor === s.id && (
+            <div style={{ marginTop: 8 }}>
+              <textarea
+                className="beo-input"
+                rows={4}
+                placeholder={"Paste a whole list here — one item per line, or comma-separated:\n\nखस्ता कचौड़ी (दाल)\nखस्ता कचौड़ी (मटर)\nदाल बेड़ई"}
+                value={bulkDraft[s.id] || ""}
+                onChange={e => setBulkDraft(prev => ({ ...prev, [s.id]: e.target.value }))}
+                style={{ resize: "vertical", fontFamily: "inherit", marginBottom: 8 }}
+              />
+              <button className="beo-btn beo-btn-primary" onClick={() => addBulkItems(s.id)}>＋ Add all lines as items</button>
+            </div>
+          )}
         </div>
       ))}
 
