@@ -853,6 +853,7 @@ function PublicMenuView({ menuId }) {
   return (
     <div style={{ maxWidth: 700, margin: "0 auto", padding: "36px 20px 100px" }}>
       <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 4 }}>{data.name}</div>
+      {data.introMessage && <div style={{ fontSize: 13.5, color: "#333", textAlign: "center", marginBottom: 14, fontStyle: "italic" }}>{data.introMessage}</div>}
       <div style={{ fontSize: 12.5, color: "#8a8071", textAlign: "center", marginBottom: hasHindi ? 12 : 24 }}>Select your items below, then submit — you can pick up to the limit shown for each section.</div>
       {hasHindi && (
         <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 24 }}>
@@ -4521,6 +4522,7 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
     try {
       await db.collection("publicMenus").doc(id).set({
         name: template.name,
+        introMessage: template.introMessage || "",
         sections: sections.map(s => ({ id: s.id, name: s.name, selectLimit: s.selectLimit, isLiveCounter: !!s.isLiveCounter, items: s.items })),
         expiryDate: template.expiryDate || "",
         updatedAt: Date.now()
@@ -4566,6 +4568,18 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
           <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Link expires on (optional)</label>
           <input className="beo-input" type="date" value={template.expiryDate || ""} onChange={e => update({ expiryDate: e.target.value })} style={{ width: 160 }} />
           <span style={{ fontSize: 11.5, color: "#a39a89" }}>After this date, the shared link stops accepting new submissions. Leave blank for no expiry.</span>
+        </div>
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px dashed #E4DCC8" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Client Welcome Message (shown at the top of their menu selection page)</label>
+            <AskGeminiButton
+              apiKey={companySettings.geminiApiKey}
+              label="Write this for me"
+              buildPrompt={(instruction) => `Write a short, warm 1-2 sentence welcome message for a client opening an online catering menu selection page for "${template.name || "our menu"}". It should invite them to pick their favourites. ${instruction ? "Additional guidance: " + instruction : ""} Return only the message text, no headings or quotation marks.`}
+              onResult={(text) => update({ introMessage: text })}
+            />
+          </div>
+          <textarea className="beo-input" rows={2} placeholder="e.g. Welcome! Please select your favourites below — we can't wait to serve you." value={template.introMessage || ""} onChange={e => update({ introMessage: e.target.value })} style={{ resize: "vertical", fontFamily: "inherit" }} />
         </div>
       </div>
 
