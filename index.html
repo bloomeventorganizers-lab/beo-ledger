@@ -583,6 +583,24 @@
 
     doc.save(`${(response.clientName || "menu_selection").replace(/[^a-z0-9]/gi, "_")}.pdf`);
   };
+
+  window.askGemini = async function (prompt, apiKey) {
+    if (!apiKey) throw new Error("No Gemini API key set — add one in Company Settings first.");
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      throw new Error(`Gemini request failed (${res.status}). ${errBody.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("Gemini returned no text — try rephrasing your request.");
+    return text.trim();
+  };
 </script>
 
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -773,6 +791,7 @@ function PublicMenuView({ menuId }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [lang, setLang] = useState("en");
 
   useEffect(() => {
     db.collection("publicMenus").doc(menuId).get()
@@ -829,10 +848,18 @@ function PublicMenuView({ menuId }) {
     );
   }
 
+  const hasHindi = (data.sections || []).some(s => (s.items || []).some(it => it.nameHi && it.nameHi.trim()));
+
   return (
     <div style={{ maxWidth: 700, margin: "0 auto", padding: "36px 20px 100px" }}>
       <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 4 }}>{data.name}</div>
-      <div style={{ fontSize: 12.5, color: "#8a8071", textAlign: "center", marginBottom: 24 }}>Select your items below, then submit — you can pick up to the limit shown for each section.</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", textAlign: "center", marginBottom: hasHindi ? 12 : 24 }}>Select your items below, then submit — you can pick up to the limit shown for each section.</div>
+      {hasHindi && (
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 24 }}>
+          <button className="beo-btn" onClick={() => setLang("en")} style={{ padding: "6px 16px", fontSize: 12.5, borderRadius: 6, background: lang === "en" ? "#6B1E23" : "#F1EADA", color: lang === "en" ? "#fff" : "#211D17" }}>English</button>
+          <button className="beo-btn" onClick={() => setLang("hi")} style={{ padding: "6px 16px", fontSize: 12.5, borderRadius: 6, background: lang === "hi" ? "#6B1E23" : "#F1EADA", color: lang === "hi" ? "#fff" : "#211D17" }}>हिन्दी</button>
+        </div>
+      )}
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 20 }}>
         <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Your Name</label>
@@ -856,7 +883,7 @@ function PublicMenuView({ menuId }) {
                 return (
                   <label key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "6px 8px", borderRadius: 6, background: checked ? "#F3EBD8" : "transparent", opacity: disabled ? 0.4 : 1, cursor: disabled ? "not-allowed" : "pointer" }}>
                     <input type="checkbox" checked={checked} disabled={disabled} onChange={() => toggleItem(s, it.name)} />
-                    <span>{it.name}{it.price ? (s.isLiveCounter ? ` — ₹${it.price}/pax` : ` — ₹${it.price}`) : ""}</span>
+                    <span>{(lang === "hi" && it.nameHi) ? it.nameHi : it.name}{it.price ? (s.isLiveCounter ? ` — ₹${it.price}/pax` : ` — ₹${it.price}`) : ""}</span>
                   </label>
                 );
               })}
@@ -3791,6 +3818,28 @@ function ProjectDetail({ project, onBack, onChange }) {
 
 const DEFAULT_LEGACY_TEXT = "We are deeply honoured that you have chosen us to be part of your most sacred journey. This proposal has been crafted not merely as a document, but as a promise that every detail of your celebration shall reflect timeless grace, woven together with the refinement of a truly elevated experience.";
 
+function AskGeminiButton({ apiKey, buildPrompt, onResult, label }) {
+  const [loading, setLoading] = useState(false);
+  const handleClick = async () => {
+    if (!apiKey) { alert('No Gemini API key set — open the ⋮ menu → Company Settings and paste your key first.'); return; }
+    const instruction = window.prompt("What should Gemini write? (e.g. \"a warm, luxury tone, 2 paragraphs\")", "");
+    if (instruction === null) return;
+    setLoading(true);
+    try {
+      const text = await window.askGemini(buildPrompt(instruction), apiKey);
+      onResult(text);
+    } catch (e) {
+      alert(e.message);
+    }
+    setLoading(false);
+  };
+  return (
+    <button type="button" className="beo-btn beo-btn-ghost" disabled={loading} onClick={handleClick} style={{ fontSize: 11.5, padding: "5px 10px" }}>
+      {loading ? "Thinking…" : `✨ ${label || "Ask Gemini"}`}
+    </button>
+  );
+}
+
 function CompanySettingsForm({ settings, onChange, onClose }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -3851,6 +3900,12 @@ function CompanySettingsForm({ settings, onChange, onClose }) {
           <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Phone</label>
           <input className="beo-input" value={s.phone || ""} onChange={e => update({ phone: e.target.value })} style={{ marginTop: 4 }} />
         </div>
+      </div>
+
+      <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px dashed #E4DCC8" }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Gemini API Key (for "✨ Ask Gemini" writing help)</label>
+        <input className="beo-input" type="password" value={s.geminiApiKey || ""} onChange={e => update({ geminiApiKey: e.target.value })} placeholder="Paste your Gemini API key" style={{ marginTop: 4 }} />
+        <div style={{ fontSize: 11, color: "#a39a89", marginTop: 4 }}>Get a free key at aistudio.google.com/apikey. Used directly from your browser when you click "✨ Ask Gemini" buttons — only visible to your admin account.</div>
       </div>
 
       <button className="beo-btn beo-btn-primary" onClick={onClose} style={{ marginTop: 20 }}>Done</button>
@@ -4060,6 +4115,14 @@ function ProposalBuilder({ proposal, budgets, companySettings, onBack, onChange 
 
       {sectionCard("Legacy & Philosophy", (
         <React.Fragment>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+            <AskGeminiButton
+              apiKey={companySettings.geminiApiKey}
+              label="Write this for me"
+              buildPrompt={(instruction) => `Write a warm, elegant "Legacy & Philosophy" paragraph (2-3 short paragraphs) for a wedding/event company's client proposal document. Company name: ${companySettings.companyName || "our company"}. ${instruction ? "Additional guidance: " + instruction : ""} Return only the paragraph text, no headings or quotation marks.`}
+              onResult={(text) => update({ legacyText: text })}
+            />
+          </div>
           <textarea className="beo-input" rows={5} value={proposal.legacyText || companySettings.legacyText || DEFAULT_LEGACY_TEXT} onChange={e => update({ legacyText: e.target.value })} style={{ resize: "vertical", fontFamily: "inherit", marginBottom: 14 }} />
           <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Legacy Highlights (e.g. "MSME Registered", "In-house photography team")</div>
           {legacyHighlights.map((h, i) => (
@@ -4076,6 +4139,14 @@ function ProposalBuilder({ proposal, budgets, companySettings, onBack, onChange 
 
       {sectionCard("Venue", (
         <React.Fragment>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+            <AskGeminiButton
+              apiKey={companySettings.geminiApiKey}
+              label="Write this for me"
+              buildPrompt={(instruction) => `Write an elegant 1-2 paragraph venue description for "${proposal.venueName || "the venue"}" in a wedding/event proposal document. ${instruction ? "Additional guidance: " + instruction : ""} Return only the paragraph text, no headings or quotation marks.`}
+              onResult={(text) => update({ venueDescription: text })}
+            />
+          </div>
           <textarea className="beo-input" rows={3} placeholder="Venue description…" value={proposal.venueDescription || ""} onChange={e => update({ venueDescription: e.target.value })} style={{ marginBottom: 12, resize: "vertical", fontFamily: "inherit" }} />
           {(proposal.venuePhotos || []).length > 0 && (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
@@ -4109,6 +4180,14 @@ function ProposalBuilder({ proposal, budgets, companySettings, onBack, onChange 
       {sectionCard("Decor Vision", (
         <React.Fragment>
           <input className="beo-input" placeholder="Theme name (e.g. Brij Theme)" value={proposal.decorThemeName || ""} onChange={e => update({ decorThemeName: e.target.value })} style={{ marginBottom: 10 }} />
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+            <AskGeminiButton
+              apiKey={companySettings.geminiApiKey}
+              label="Write this for me"
+              buildPrompt={(instruction) => `Write an evocative 1-2 paragraph decor vision description for a "${proposal.decorThemeName || "wedding theme"}" in a wedding/event proposal document. ${instruction ? "Additional guidance: " + instruction : ""} Return only the paragraph text, no headings or quotation marks.`}
+              onResult={(text) => update({ decorDescription: text })}
+            />
+          </div>
           <textarea className="beo-input" rows={3} placeholder="Decor vision description…" value={proposal.decorDescription || ""} onChange={e => update({ decorDescription: e.target.value })} style={{ marginBottom: 12, resize: "vertical", fontFamily: "inherit" }} />
           {(proposal.decorPhotos || []).length > 0 && (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
@@ -4305,6 +4384,7 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
   const [newSectionName, setNewSectionName] = useState("");
   const [itemDraft, setItemDraft] = useState({});
   const [priceDraft, setPriceDraft] = useState({});
+  const [nameHiDraft, setNameHiDraft] = useState({});
   const [bulkDraft, setBulkDraft] = useState({});
   const [bulkOpenFor, setBulkOpenFor] = useState(null);
   const [sharing, setSharing] = useState(false);
@@ -4351,12 +4431,17 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
     const name = (itemDraft[sectionId] || "").trim();
     if (!name) return;
     const price = Number(priceDraft[sectionId]) || 0;
-    update({ sections: sections.map(s => s.id === sectionId ? { ...s, items: [...s.items, { id: uid(), name, price }] } : s) });
+    const nameHi = (nameHiDraft[sectionId] || "").trim();
+    update({ sections: sections.map(s => s.id === sectionId ? { ...s, items: [...s.items, { id: uid(), name, price, nameHi }] } : s) });
     setItemDraft(prev => ({ ...prev, [sectionId]: "" }));
     setPriceDraft(prev => ({ ...prev, [sectionId]: "" }));
+    setNameHiDraft(prev => ({ ...prev, [sectionId]: "" }));
   };
   const removeItem = (sectionId, itemId) => {
     update({ sections: sections.map(s => s.id === sectionId ? { ...s, items: s.items.filter(i => i.id !== itemId) } : s) });
+  };
+  const updateItemHindi = (sectionId, itemId, nameHi) => {
+    update({ sections: sections.map(s => s.id === sectionId ? { ...s, items: s.items.map(i => i.id === itemId ? { ...i, nameHi } : i) } : s) });
   };
 
   const addBulkItems = (sectionId) => {
@@ -4475,10 +4560,11 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
           {s.items.length === 0 ? (
             <div style={{ color: "#a39a89", fontSize: 12.5, marginBottom: 10 }}>No items yet.</div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 24px", gap: 8, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 24px", gap: 8, marginBottom: 10 }}>
               {s.items.map(it => (
                 <React.Fragment key={it.id}>
                   <div style={{ fontSize: 13, padding: "4px 0" }}>{it.name}</div>
+                  <input className="beo-input" placeholder="Hindi name (optional)" value={it.nameHi || ""} onChange={e => updateItemHindi(s.id, it.id, e.target.value)} style={{ fontSize: 12.5, padding: "5px 8px" }} />
                   <div style={{ fontSize: 12, color: "#8a8071" }}>{it.price ? `${inr(it.price)}${s.isLiveCounter ? "/pax" : ""}` : "—"}</div>
                   <span onClick={() => removeItem(s.id, it.id)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span>
                 </React.Fragment>
@@ -4486,7 +4572,8 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
             </div>
           )}
           <div style={{ display: "flex", gap: 6 }}>
-            <input className="beo-input" placeholder="New item name" value={itemDraft[s.id] || ""} onChange={e => setItemDraft(prev => ({ ...prev, [s.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && addItem(s.id)} />
+            <input className="beo-input" placeholder="New item name (English)" value={itemDraft[s.id] || ""} onChange={e => setItemDraft(prev => ({ ...prev, [s.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && addItem(s.id)} />
+            <input className="beo-input" placeholder="Hindi (optional)" value={nameHiDraft[s.id] || ""} onChange={e => setNameHiDraft(prev => ({ ...prev, [s.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && addItem(s.id)} style={{ width: 140 }} />
             <input className="beo-input" type="number" placeholder={s.isLiveCounter ? "₹/pax" : "₹ (optional)"} value={priceDraft[s.id] || ""} onChange={e => setPriceDraft(prev => ({ ...prev, [s.id]: e.target.value }))} style={{ width: 100 }} />
             <button className="beo-btn beo-btn-primary" onClick={() => addItem(s.id)}>＋</button>
             <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12, whiteSpace: "nowrap" }} onClick={() => setBulkOpenFor(bulkOpenFor === s.id ? null : s.id)}>📋 Paste multiple</button>
