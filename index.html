@@ -4385,6 +4385,7 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
   const [itemDraft, setItemDraft] = useState({});
   const [priceDraft, setPriceDraft] = useState({});
   const [nameHiDraft, setNameHiDraft] = useState({});
+  const [translatingSection, setTranslatingSection] = useState(null);
   const [bulkDraft, setBulkDraft] = useState({});
   const [bulkOpenFor, setBulkOpenFor] = useState(null);
   const [sharing, setSharing] = useState(false);
@@ -4442,6 +4443,32 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
   };
   const updateItemHindi = (sectionId, itemId, nameHi) => {
     update({ sections: sections.map(s => s.id === sectionId ? { ...s, items: s.items.map(i => i.id === itemId ? { ...i, nameHi } : i) } : s) });
+  };
+
+  const autoTranslateSection = async (section) => {
+    const apiKey = companySettings.geminiApiKey;
+    if (!apiKey) { alert('No Gemini API key set — open the ⋮ menu → Company Settings and paste your key first.'); return; }
+    const itemsNeeding = section.items.filter(i => !i.nameHi || !i.nameHi.trim());
+    if (itemsNeeding.length === 0) { alert("Every item in this section already has a Hindi name."); return; }
+    setTranslatingSection(section.id);
+    try {
+      const namesList = itemsNeeding.map(i => i.name);
+      const prompt = `You are helping translate an Indian wedding catering menu. Transliterate/translate these English food item names into natural Hindi (Devanagari script), the way they'd normally appear on a printed Indian menu (e.g. "Paneer Tikka" -> "पनीर टिक्का"). Return ONLY a JSON array of strings, same order, same count as the input, no other text, no markdown code fences.\n\nItems:\n${JSON.stringify(namesList)}`;
+      const raw = await window.askGemini(prompt, apiKey);
+      const cleaned = raw.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      if (!Array.isArray(parsed) || parsed.length !== namesList.length) throw new Error("Gemini returned an unexpected format — try again.");
+      const nameHiById = {};
+      itemsNeeding.forEach((it, idx) => { nameHiById[it.id] = parsed[idx]; });
+      update({
+        sections: sections.map(s => s.id === section.id
+          ? { ...s, items: s.items.map(i => nameHiById[i.id] ? { ...i, nameHi: nameHiById[i.id] } : i) }
+          : s)
+      });
+    } catch (e) {
+      alert("Auto-translate failed: " + e.message);
+    }
+    setTranslatingSection(null);
   };
 
   const addBulkItems = (sectionId) => {
@@ -4553,6 +4580,7 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
               <input type="checkbox" checked={!!s.isLiveCounter} onChange={e => updateSection(s.id, { isLiveCounter: e.target.checked })} /> Live counter (paid per pax)
             </label>
+            <button className="beo-btn beo-btn-ghost" disabled={translatingSection === s.id} style={{ fontSize: 11 }} onClick={() => autoTranslateSection(s)}>{translatingSection === s.id ? "Translating…" : "🌐 Auto-fill Hindi"}</button>
             <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11 }} onClick={() => duplicateSection(s)}>Duplicate</button>
             <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, color: "#c9585d" }} onClick={() => removeSection(s.id)}>Delete section</button>
           </div>
