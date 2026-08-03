@@ -503,8 +503,86 @@
     doc.save(`${(proposal.title || "proposal").replace(/[^a-z0-9]/gi, "_")}.pdf`);
     return { loadErrors };
   };
-</script>
 
+  window.generateMenuSelectionPdf = function (response, template, companySettings) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 18;
+    const PRIMARY = [107, 30, 35];
+    const ACCENT = [184, 147, 74];
+    const cs = companySettings || {};
+    let y = 24;
+
+    doc.setFillColor(253, 251, 243);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+    doc.setFont("times", "bold"); doc.setFontSize(18);
+    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.text(cs.companyName || "Menu Selection", pageWidth / 2, y, { align: "center" });
+    y += 8;
+    doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+    doc.setLineWidth(0.4);
+    doc.line(pageWidth / 2 - 28, y, pageWidth / 2 + 28, y);
+    y += 10;
+
+    doc.setFont("times", "bold"); doc.setFontSize(14);
+    doc.setTextColor(40, 38, 33);
+    doc.text(template.name || "Menu", pageWidth / 2, y, { align: "center" });
+    y += 8;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(11);
+    doc.setTextColor(60, 55, 50);
+    doc.text(`Client: ${response.clientName || "—"}`, pageWidth / 2, y, { align: "center" });
+    y += 6;
+    if (response.submittedAt) {
+      doc.setFontSize(9.5);
+      doc.setTextColor(120, 115, 108);
+      doc.text(`Submitted: ${new Date(response.submittedAt).toLocaleString("en-IN")}`, pageWidth / 2, y, { align: "center" });
+      y += 10;
+    } else { y += 4; }
+
+    Object.entries(response.selections || {}).forEach(([sectionName, items]) => {
+      if (!items || items.length === 0) return;
+      if (y + 14 > pageHeight - 20) { doc.addPage(); doc.setFillColor(253, 251, 243); doc.rect(0, 0, pageWidth, pageHeight, "F"); y = 24; }
+      doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+      doc.rect(margin, y, pageWidth - margin * 2, 8, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("times", "bold"); doc.setFontSize(11);
+      doc.text(sectionName, margin + 4, y + 5.6);
+      y += 12;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10.5);
+      doc.setTextColor(45, 40, 35);
+      items.forEach(itemName => {
+        if (y + 6 > pageHeight - 20) { doc.addPage(); doc.setFillColor(253, 251, 243); doc.rect(0, 0, pageWidth, pageHeight, "F"); y = 24; }
+        doc.text(`•  ${itemName}`, margin + 4, y);
+        y += 6;
+      });
+      y += 4;
+    });
+
+    if (response.suggestions) {
+      if (y + 20 > pageHeight - 20) { doc.addPage(); doc.setFillColor(253, 251, 243); doc.rect(0, 0, pageWidth, pageHeight, "F"); y = 24; }
+      doc.setFont("times", "bold"); doc.setFontSize(11);
+      doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+      doc.text("Client Suggestions", margin, y);
+      y += 7;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.setTextColor(45, 40, 35);
+      const lines = doc.splitTextToSize(response.suggestions, pageWidth - margin * 2);
+      lines.forEach(line => { doc.text(line, margin, y); y += 5.5; });
+    }
+
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.setTextColor(150, 145, 135);
+      doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" });
+    }
+
+    doc.save(`${(response.clientName || "menu_selection").replace(/[^a-z0-9]/gi, "_")}.pdf`);
+  };
 </script>
 
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -690,6 +768,7 @@ function PublicMenuView({ menuId }) {
   const [data, setData] = useState(undefined);
   const [selections, setSelections] = useState({});
   const [clientName, setClientName] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
   const [suggestions, setSuggestions] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -703,6 +782,9 @@ function PublicMenuView({ menuId }) {
 
   if (data === undefined) return <div style={{ padding: 40, textAlign: "center", color: "#6b1e23" }}>Loading menu…</div>;
   if (data === null) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This menu link is invalid or no longer available.</div>;
+
+  const isExpired = data.expiryDate && new Date(data.expiryDate) < new Date(new Date().toDateString());
+  if (isExpired) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This menu selection link has expired. Please contact us directly to update your selection.</div>;
 
   const toggleItem = (section, itemName) => {
     setSelections(prev => {
@@ -726,6 +808,7 @@ function PublicMenuView({ menuId }) {
       await db.collection("menuResponses").add({
         templateShareId: menuId,
         clientName: clientName.trim(),
+        clientPhone: clientPhone.trim(),
         selections: namedSelections,
         suggestions: suggestions.trim(),
         submittedAt: Date.now()
@@ -753,7 +836,9 @@ function PublicMenuView({ menuId }) {
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 20 }}>
         <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Your Name</label>
-        <input className="beo-input" value={clientName} onChange={e => setClientName(e.target.value)} style={{ marginTop: 4 }} />
+        <input className="beo-input" value={clientName} onChange={e => setClientName(e.target.value)} style={{ marginTop: 4, marginBottom: 12 }} />
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Phone Number (optional)</label>
+        <input className="beo-input" value={clientPhone} onChange={e => setClientPhone(e.target.value)} style={{ marginTop: 4 }} />
       </div>
 
       {(data.sections || []).map(s => {
@@ -771,7 +856,7 @@ function PublicMenuView({ menuId }) {
                 return (
                   <label key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "6px 8px", borderRadius: 6, background: checked ? "#F3EBD8" : "transparent", opacity: disabled ? 0.4 : 1, cursor: disabled ? "not-allowed" : "pointer" }}>
                     <input type="checkbox" checked={checked} disabled={disabled} onChange={() => toggleItem(s, it.name)} />
-                    <span>{it.name}{s.isLiveCounter && it.price ? ` — ₹${it.price}/pax` : ""}</span>
+                    <span>{it.name}{it.price ? (s.isLiveCounter ? ` — ₹${it.price}/pax` : ` — ₹${it.price}`) : ""}</span>
                   </label>
                 );
               })}
@@ -1057,6 +1142,7 @@ function MainApp({ user }) {
           <SidebarIcon expanded={sidebarExpanded} label="Projects" title="Projects" active={tab === "projects" || tab === "projectDetail"} onClick={() => setTab("projects")}>📋</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Proposals" title="Proposals" active={tab === "proposals" || tab === "proposalBuilder"} onClick={() => setTab("proposals")}>✦</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Catering" title="Catering" active={tab === "catering" || tab === "cateringDetail"} onClick={() => setTab("catering")}>🍽️</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Clients" title="Clients" active={tab === "clients"} onClick={() => setTab("clients")}>👤</SidebarIcon>
           <div style={{ flex: 1 }}></div>
           <div style={{ position: "relative", marginBottom: 16 }}>
             <button
@@ -1113,7 +1199,7 @@ function MainApp({ user }) {
           <div style={{ maxWidth: "none", position: "relative" }}>
             <input
               className="beo-input"
-              placeholder="🔍 Search across Hotels, Client Budgets & Corporate Quotes…"
+              placeholder="🔍 Search across Hotels, Budgets, Quotes, Vendors, Proposals & Catering…"
               value={globalSearch}
               onChange={e => setGlobalSearch(e.target.value)}
               style={{ fontSize: 13.5 }}
@@ -1123,7 +1209,10 @@ function MainApp({ user }) {
               const matchedBudgets = budgets.filter(b => (b.name || "").toLowerCase().includes(q) || (b.clientName || "").toLowerCase().includes(q)).slice(0, 5);
               const matchedHotels = cities.flatMap(c => c.hotels.filter(h => h.name.toLowerCase().includes(q)).map(h => ({ h, cityId: c.id }))).slice(0, 5);
               const matchedQuotes = corpQuotes.filter(qt => (qt.name || "").toLowerCase().includes(q) || (qt.clientName || "").toLowerCase().includes(q)).slice(0, 5);
-              const noResults = matchedBudgets.length === 0 && matchedHotels.length === 0 && matchedQuotes.length === 0;
+              const matchedVendors = (vendors || []).filter(v => (v.name || "").toLowerCase().includes(q)).slice(0, 5);
+              const matchedProposals = (proposals || []).filter(p => (p.title || "").toLowerCase().includes(q) || (p.brideNam || "").toLowerCase().includes(q) || (p.groomName || "").toLowerCase().includes(q)).slice(0, 5);
+              const matchedCatering = (cateringTemplates || []).filter(t => (t.name || "").toLowerCase().includes(q)).slice(0, 5);
+              const noResults = matchedBudgets.length === 0 && matchedHotels.length === 0 && matchedQuotes.length === 0 && matchedVendors.length === 0 && matchedProposals.length === 0 && matchedCatering.length === 0;
               return (
                 <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #EDE6D6", borderRadius: 8, marginTop: 4, boxShadow: "0 6px 20px rgba(0,0,0,0.08)", zIndex: 50, maxHeight: 360, overflowY: "auto" }}>
                   {noResults && <div style={{ padding: 14, color: "#a39a89", fontSize: 13 }}>No matches found.</div>}
@@ -1148,6 +1237,30 @@ function MainApp({ user }) {
                       <div style={{ padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase" }}>Corporate Quotes</div>
                       {matchedQuotes.map(qt => (
                         <div key={qt.id} onClick={() => { openQuote(qt.id); setGlobalSearch(""); }} style={{ padding: "8px 14px", cursor: "pointer", fontSize: 13.5 }}>{qt.name} <span style={{ color: "#8a8071", fontSize: 12 }}>({qt.clientName || "no client"})</span></div>
+                      ))}
+                    </div>
+                  )}
+                  {matchedVendors.length > 0 && (
+                    <div>
+                      <div style={{ padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase" }}>Vendors & Artists</div>
+                      {matchedVendors.map(v => (
+                        <div key={v.id} onClick={() => { openVendor(v.id); setGlobalSearch(""); }} style={{ padding: "8px 14px", cursor: "pointer", fontSize: 13.5 }}>{v.name} <span style={{ color: "#8a8071", fontSize: 12 }}>({v.category || "Vendor"})</span></div>
+                      ))}
+                    </div>
+                  )}
+                  {matchedProposals.length > 0 && (
+                    <div>
+                      <div style={{ padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase" }}>Proposals</div>
+                      {matchedProposals.map(p => (
+                        <div key={p.id} onClick={() => { setActiveProposalId(p.id); setTab("proposalBuilder"); setGlobalSearch(""); }} style={{ padding: "8px 14px", cursor: "pointer", fontSize: 13.5 }}>{p.title} <span style={{ color: "#8a8071", fontSize: 12 }}>({p.brideNam || "—"} & {p.groomName || "—"})</span></div>
+                      ))}
+                    </div>
+                  )}
+                  {matchedCatering.length > 0 && (
+                    <div>
+                      <div style={{ padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase" }}>Catering Menus</div>
+                      {matchedCatering.map(t => (
+                        <div key={t.id} onClick={() => { setActiveCateringId(t.id); setTab("cateringDetail"); setGlobalSearch(""); }} style={{ padding: "8px 14px", cursor: "pointer", fontSize: 13.5 }}>{t.name}</div>
                       ))}
                     </div>
                   )}
@@ -1291,8 +1404,19 @@ function MainApp({ user }) {
             template={cateringTemplates.find(t => t.id === activeCateringId)}
             budgets={budgets}
             setBudgets={setBudgets}
+            companySettings={companySettings}
             onBack={() => setTab("catering")}
             onChange={(updated) => setCateringTemplates(prev => prev.map(t => t.id === updated.id ? updated : t))}
+          />
+        )}
+        {isAdmin && tab === "clients" && (
+          <ClientDirectoryView
+            budgets={budgets}
+            proposals={proposals}
+            corpQuotes={corpQuotes}
+            onOpenBudget={openBudget}
+            onOpenProposal={(id) => { setActiveProposalId(id); setTab("proposalBuilder"); }}
+            onOpenQuote={openQuote}
           />
         )}
       </div>
@@ -4112,7 +4236,7 @@ function PublicMenuPreviewBody({ data }) {
                 return (
                   <label key={it.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, padding: "5px 6px", borderRadius: 6, background: checked ? "#F3EBD8" : "transparent", opacity: disabled ? 0.4 : 1 }}>
                     <input type="checkbox" checked={checked} disabled={disabled} onChange={() => toggleItem(s, it.name)} />
-                    <span>{it.name}{s.isLiveCounter && it.price ? ` — ₹${it.price}/pax` : ""}</span>
+                    <span>{it.name}{it.price ? (s.isLiveCounter ? ` — ₹${it.price}/pax` : ` — ₹${it.price}`) : ""}</span>
                   </label>
                 );
               })}
@@ -4177,7 +4301,7 @@ function CateringListView({ templates, setTemplates, onOpen, logActivity }) {
   );
 }
 
-function CateringTemplateDetail({ template, budgets, setBudgets, onBack, onChange }) {
+function CateringTemplateDetail({ template, budgets, setBudgets, companySettings, onBack, onChange }) {
   const [newSectionName, setNewSectionName] = useState("");
   const [itemDraft, setItemDraft] = useState({});
   const [priceDraft, setPriceDraft] = useState({});
@@ -4247,13 +4371,24 @@ function CateringTemplateDetail({ template, budgets, setBudgets, onBack, onChang
     setBulkOpenFor(null);
   };
 
+  const deleteResponse = (responseId) => {
+    if (!window.confirm("Delete this submission? The client will need to resubmit via the same link if they need to redo it.")) return;
+    db.collection("menuResponses").doc(responseId).delete().catch(e => alert("Could not delete: " + e.message));
+  };
+
   const addResponseToBudget = (response, budgetId) => {
     if (!budgetId) return;
     const budget = budgets.find(b => b.id === budgetId);
     if (!budget) return;
     const lines = [];
     Object.entries(response.selections || {}).forEach(([sectionName, items]) => {
-      items.forEach(itemName => lines.push({ id: uid(), itemRef: uid(), category: "Catering", name: `${itemName} (${sectionName})`, cost: 0, qty: 1 }));
+      const section = sections.find(s => s.name === sectionName);
+      items.forEach(itemName => {
+        const matchedItem = section && section.items.find(i => i.name === itemName);
+        let cost = matchedItem ? (Number(matchedItem.price) || 0) : 0;
+        if (section && section.isLiveCounter && cost) cost = cost * paxCount;
+        lines.push({ id: uid(), itemRef: uid(), category: "Catering", name: `${itemName} (${sectionName})`, cost, qty: 1 });
+      });
     });
     if (response.suggestions) lines.push({ id: uid(), itemRef: uid(), category: "Catering", name: `Client suggestion: ${response.suggestions}`, cost: 0, qty: 1 });
     if (lines.length === 0) { alert("No selected items to add."); return; }
@@ -4262,7 +4397,7 @@ function CateringTemplateDetail({ template, budgets, setBudgets, onBack, onChang
     setBudgets(prev => prev.map(b => b.id === budgetId ? updatedBudget : b));
     setAddToBudgetFor(null);
     setBudgetPickerId("");
-    alert(`Added to "${budget.name}" as a new day. You can edit costs/quantities there.`);
+    alert(`Added to "${budget.name}" as a new day, with costs pulled from your current menu prices where available. You can edit costs/quantities there.`);
   };
 
   const paxCount = Number(template.paxCount) || 0;
@@ -4275,6 +4410,7 @@ function CateringTemplateDetail({ template, budgets, setBudgets, onBack, onChang
       await db.collection("publicMenus").doc(id).set({
         name: template.name,
         sections: sections.map(s => ({ id: s.id, name: s.name, selectLimit: s.selectLimit, isLiveCounter: !!s.isLiveCounter, items: s.items })),
+        expiryDate: template.expiryDate || "",
         updatedAt: Date.now()
       });
       if (!template.shareId) update({ shareId: id });
@@ -4307,12 +4443,17 @@ function CateringTemplateDetail({ template, budgets, setBudgets, onBack, onChang
       <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
         <input className="beo-input beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", border: "none", padding: "4px 0" }} value={template.name} onChange={e => update({ name: e.target.value })} />
         {template.shareId && <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 6, marginBottom: 10 }}>Note: if you edit sections/items after sharing, click "Get / Update Shareable Link" again to push the changes to the live link.</div>}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Pax count</label>
           <input className="beo-input" type="number" value={nz(template.paxCount)} onChange={e => update({ paxCount: Number(e.target.value) || 0 })} style={{ width: 100 }} />
           {paxCount > 0 && liveCounterTotal > 0 && (
             <div style={{ fontSize: 12.5, color: "#2E7D32", fontWeight: 600 }}>Live counter total: {inr(liveCounterTotal)} (all live counters × {paxCount} pax)</div>
           )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Link expires on (optional)</label>
+          <input className="beo-input" type="date" value={template.expiryDate || ""} onChange={e => update({ expiryDate: e.target.value })} style={{ width: 160 }} />
+          <span style={{ fontSize: 11.5, color: "#a39a89" }}>After this date, the shared link stops accepting new submissions. Leave blank for no expiry.</span>
         </div>
       </div>
 
@@ -4334,11 +4475,11 @@ function CateringTemplateDetail({ template, budgets, setBudgets, onBack, onChang
           {s.items.length === 0 ? (
             <div style={{ color: "#a39a89", fontSize: 12.5, marginBottom: 10 }}>No items yet.</div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: s.isLiveCounter ? "1fr 90px 24px" : "1fr 24px", gap: 8, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 24px", gap: 8, marginBottom: 10 }}>
               {s.items.map(it => (
                 <React.Fragment key={it.id}>
                   <div style={{ fontSize: 13, padding: "4px 0" }}>{it.name}</div>
-                  {s.isLiveCounter && <div style={{ fontSize: 12, color: "#8a8071" }}>{inr(it.price)}/pax</div>}
+                  <div style={{ fontSize: 12, color: "#8a8071" }}>{it.price ? `${inr(it.price)}${s.isLiveCounter ? "/pax" : ""}` : "—"}</div>
                   <span onClick={() => removeItem(s.id, it.id)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span>
                 </React.Fragment>
               ))}
@@ -4346,7 +4487,7 @@ function CateringTemplateDetail({ template, budgets, setBudgets, onBack, onChang
           )}
           <div style={{ display: "flex", gap: 6 }}>
             <input className="beo-input" placeholder="New item name" value={itemDraft[s.id] || ""} onChange={e => setItemDraft(prev => ({ ...prev, [s.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && addItem(s.id)} />
-            {s.isLiveCounter && <input className="beo-input" type="number" placeholder="₹/pax" value={priceDraft[s.id] || ""} onChange={e => setPriceDraft(prev => ({ ...prev, [s.id]: e.target.value }))} style={{ width: 90 }} />}
+            <input className="beo-input" type="number" placeholder={s.isLiveCounter ? "₹/pax" : "₹ (optional)"} value={priceDraft[s.id] || ""} onChange={e => setPriceDraft(prev => ({ ...prev, [s.id]: e.target.value }))} style={{ width: 100 }} />
             <button className="beo-btn beo-btn-primary" onClick={() => addItem(s.id)}>＋</button>
             <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12, whiteSpace: "nowrap" }} onClick={() => setBulkOpenFor(bulkOpenFor === s.id ? null : s.id)}>📋 Paste multiple</button>
           </div>
@@ -4419,7 +4560,11 @@ function CateringTemplateDetail({ template, budgets, setBudgets, onBack, onChang
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{r.clientName || "Unnamed client"}</div>
                   <div style={{ fontSize: 11.5, color: "#8a8071" }}>{r.submittedAt ? new Date(r.submittedAt).toLocaleString("en-IN") : ""}</div>
                 </div>
-                <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11.5 }} onClick={() => setAddToBudgetFor(addToBudgetFor === r.id ? null : r.id)}>💰 Add to Client Budget</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11.5 }} onClick={() => setAddToBudgetFor(addToBudgetFor === r.id ? null : r.id)}>💰 Add to Client Budget</button>
+                  <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11.5 }} onClick={() => window.generateMenuSelectionPdf(r, template, companySettings)}>📄 Export PDF</button>
+                  <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11.5, color: "#c9585d" }} onClick={() => deleteResponse(r.id)}>🗑 Delete</button>
+                </div>
               </div>
               {addToBudgetFor === r.id && (
                 <div style={{ display: "flex", gap: 6, margin: "8px 0", flexWrap: "wrap" }}>
@@ -4453,6 +4598,122 @@ function CateringTemplateDetail({ template, budgets, setBudgets, onBack, onChang
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function ClientDirectoryView({ budgets, proposals, corpQuotes, onOpenBudget, onOpenProposal, onOpenQuote }) {
+  const [allResponses, setAllResponses] = useState([]);
+  const [responsesLoading, setResponsesLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [expandedPhone, setExpandedPhone] = useState(null);
+
+  useEffect(() => {
+    const unsub = db.collection("menuResponses").onSnapshot(snap => {
+      const list = [];
+      snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+      setAllResponses(list);
+      setResponsesLoading(false);
+    }, () => setResponsesLoading(false));
+    return unsub;
+  }, []);
+
+  const normPhone = (s) => String(s || "").replace(/\D/g, "");
+
+  const clients = {};
+  const ensureClient = (phone, name) => {
+    if (!clients[phone]) clients[phone] = { phone, name: name || "", budgets: [], proposals: [], quotes: [], catering: [] };
+    if (name && !clients[phone].name) clients[phone].name = name;
+  };
+
+  (budgets || []).forEach(b => {
+    const p = normPhone(b.clientPhone);
+    if (p) { ensureClient(p, b.clientName); clients[p].budgets.push(b); }
+  });
+  (proposals || []).forEach(p => {
+    const ph = normPhone(p.clientContact);
+    if (ph) { ensureClient(ph, [p.brideNam, p.groomName].filter(Boolean).join(" & ")); clients[ph].proposals.push(p); }
+  });
+  (corpQuotes || []).forEach(q => {
+    const p = normPhone(q.clientPhone);
+    if (p) { ensureClient(p, q.clientName); clients[p].quotes.push(q); }
+  });
+  (allResponses || []).forEach(r => {
+    const p = normPhone(r.clientPhone);
+    if (p) { ensureClient(p, r.clientName); clients[p].catering.push(r); }
+  });
+
+  let clientList = Object.values(clients);
+  const q = search.trim().toLowerCase();
+  if (q) clientList = clientList.filter(c => (c.name || "").toLowerCase().includes(q) || c.phone.includes(q));
+  clientList.sort((a, b) => (b.budgets.length + b.proposals.length + b.quotes.length + b.catering.length) - (a.budgets.length + a.proposals.length + a.quotes.length + a.catering.length));
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 6 }}>👤 Clients</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", marginBottom: 16 }}>Every client's budgets, proposals, corporate quotes, and catering selections in one place — grouped automatically by phone number.</div>
+
+      <input className="beo-input" placeholder="🔍 Search by name or phone…" value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 18 }} />
+
+      {responsesLoading ? (
+        <div style={{ color: "#a39a89", fontSize: 13 }}>Loading…</div>
+      ) : clientList.length === 0 ? (
+        <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>
+          No clients found yet. Clients show up here once a phone number is entered on a Client Budget, Proposal, Corporate Quote, or Catering submission.
+        </div>
+      ) : (
+        clientList.map(c => {
+          const total = c.budgets.length + c.proposals.length + c.quotes.length + c.catering.length;
+          const expanded = expandedPhone === c.phone;
+          return (
+            <div key={c.phone} className="beo-card" style={{ padding: 16, marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setExpandedPhone(expanded ? null : c.phone)}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name || "Unnamed client"}</div>
+                  <div style={{ fontSize: 12, color: "#8a8071" }}>{c.phone}</div>
+                </div>
+                <div style={{ fontSize: 12, color: "#6B1E23", fontWeight: 600 }}>{total} record{total === 1 ? "" : "s"} {expanded ? "▲" : "▼"}</div>
+              </div>
+              {expanded && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #F1EADA" }}>
+                  {c.budgets.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 4 }}>Client Budgets</div>
+                      {c.budgets.map(b => (
+                        <div key={b.id} onClick={() => onOpenBudget(b.id)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", color: "#6B1E23" }}>{b.name} — {b.date} <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 8, background: budgetStatusColor(b.status).bg, color: budgetStatusColor(b.status).fg, marginLeft: 6 }}>{b.status || "Lead"}</span></div>
+                      ))}
+                    </div>
+                  )}
+                  {c.proposals.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 4 }}>Proposals</div>
+                      {c.proposals.map(p => (
+                        <div key={p.id} onClick={() => onOpenProposal(p.id)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", color: "#6B1E23" }}>{p.title} — {p.weddingDate || "no date"}</div>
+                      ))}
+                    </div>
+                  )}
+                  {c.quotes.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 4 }}>Corporate Quotes</div>
+                      {c.quotes.map(q => (
+                        <div key={q.id} onClick={() => onOpenQuote(q.id)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", color: "#6B1E23" }}>{q.name} — {q.date}</div>
+                      ))}
+                    </div>
+                  )}
+                  {c.catering.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 4 }}>Catering Selections</div>
+                      {c.catering.map(r => (
+                        <div key={r.id} style={{ fontSize: 13, padding: "4px 0" }}>Submitted {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString("en-IN") : ""}{r.suggestions ? " — has suggestions" : ""}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
       )}
     </div>
   );
