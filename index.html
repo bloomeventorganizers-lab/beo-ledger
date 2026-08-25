@@ -818,11 +818,12 @@ function App() {
   const testimonialId = new URLSearchParams(window.location.search).get("testimonial");
   const contractId = new URLSearchParams(window.location.search).get("contract");
   const rsvpId = new URLSearchParams(window.location.search).get("rsvp");
+  const portalId = new URLSearchParams(window.location.search).get("portal");
   const [user, setUser] = useState(undefined);
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
-    if (shareId || menuId || testimonialId || contractId || rsvpId) return;
+    if (shareId || menuId || testimonialId || contractId || rsvpId || portalId) return;
     const unsub = auth.onAuthStateChanged(u => setUser(u || null));
     return unsub;
   }, []);
@@ -832,6 +833,7 @@ function App() {
   if (testimonialId) return <PublicTestimonialView requestId={testimonialId} />;
   if (contractId) return <PublicContractView contractId={contractId} />;
   if (rsvpId) return <PublicRsvpView rsvpId={rsvpId} />;
+  if (portalId) return <PublicClientPortalView portalId={portalId} />;
   if (user === undefined) return <div style={{ padding: 40, color: "#6b1e23" }}>Checking sign-in…</div>;
   if (user === null) return <LoginScreen onError={setAuthError} error={authError} />;
   return <MainApp user={user} />;
@@ -1200,6 +1202,75 @@ function PublicRsvpView({ rsvpId }) {
   );
 }
 
+function PublicClientPortalView({ portalId }) {
+  const [data, setData] = useState(undefined);
+  const [lightboxIdx, setLightboxIdx] = useState(null);
+
+  useEffect(() => {
+    const unsub = db.collection("clientPortals").doc(portalId).onSnapshot(
+      snap => setData(snap.exists ? snap.data() : null),
+      () => setData(null)
+    );
+    return unsub;
+  }, [portalId]);
+
+  if (data === undefined) return <div style={{ padding: 40, textAlign: "center" }}>Loading…</div>;
+  if (data === null) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This link is invalid or no longer available.</div>;
+
+  const STAGES = ["Preparing", "Setup Started", "Guests Arriving", "Event In Progress", "Wrapping Up", "Complete"];
+  const currentIdx = STAGES.indexOf(data.eventStatus);
+  const photos = data.photos || [];
+  const balanceDue = Math.max(0, (data.totalAmount || 0) - (data.totalReceived || 0));
+
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px 80px" }}>
+      <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 4 }}>{data.budgetName}</div>
+      {data.clientName && <div style={{ fontSize: 13, color: "#8a8071", textAlign: "center", marginBottom: 28 }}>{data.clientName}{data.date ? ` — ${data.date}` : ""}</div>}
+
+      {data.eventStatus && (
+        <div className="beo-card" style={{ padding: 20, marginBottom: 20 }}>
+          <div style={{ fontWeight: 700, marginBottom: 14, fontSize: 14 }}>Event Status</div>
+          <div style={{ display: "flex", justifyContent: "space-between", position: "relative" }}>
+            <div style={{ position: "absolute", top: 9, left: 10, right: 10, height: 2, background: "#E4DCC8", zIndex: 0 }}></div>
+            {STAGES.map((stage, i) => (
+              <div key={stage} style={{ display: "flex", flexDirection: "column", alignItems: "center", zIndex: 1, flex: 1 }}>
+                <div style={{ width: 20, height: 20, borderRadius: "50%", background: i <= currentIdx ? "#6B1E23" : "#E4DCC8", marginBottom: 6 }}></div>
+                <div style={{ fontSize: 9.5, textAlign: "center", color: i === currentIdx ? "#6B1E23" : "#a39a89", fontWeight: i === currentIdx ? 700 : 500 }}>{stage}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(data.totalAmount > 0) && (
+        <div className="beo-card" style={{ padding: 20, marginBottom: 20 }}>
+          <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 14 }}>Payment Summary</div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0" }}><span>Total Amount</span><span style={{ fontWeight: 700 }}>₹{data.totalAmount.toLocaleString("en-IN")}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0" }}><span>Received</span><span style={{ fontWeight: 700, color: "#2E7D32" }}>₹{(data.totalReceived || 0).toLocaleString("en-IN")}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0", borderTop: "1px solid #F1EADA", marginTop: 4, paddingTop: 8 }}><span>Balance Due</span><span style={{ fontWeight: 700, color: balanceDue > 0 ? "#c9585d" : "#2E7D32" }}>₹{balanceDue.toLocaleString("en-IN")}</span></div>
+        </div>
+      )}
+
+      {photos.length > 0 && (
+        <div className="beo-card" style={{ padding: 20 }}>
+          <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 14 }}>Photos ({photos.length})</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 8 }}>
+            {photos.map((p, i) => (
+              <img key={p.id || i} src={p.url} alt="" onClick={() => setLightboxIdx(i)} style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, cursor: "pointer" }} onError={e => e.target.style.opacity = 0.2} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {lightboxIdx !== null && (
+        <div onClick={() => setLightboxIdx(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, cursor: "pointer" }}>
+          <img src={photos[lightboxIdx].url} alt="" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LoginScreen({ onError, error }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1248,6 +1319,8 @@ function MainApp({ user }) {
   const [vendorCategories, setVendorCategories] = useState(["Anchor", "Music Band", "Live Band", "Singer", "Other Artist", "Vendor", "Other"]);
   const [staffMembers, setStaffMembers] = useState([]);
   const [businessExpenses, setBusinessExpenses] = useState([]);
+  const [vaultDocuments, setVaultDocuments] = useState([]);
+  const [businessDocuments, setBusinessDocuments] = useState([]);
   const [activeVendorId, setActiveVendorId] = useState(null);
   const [ideas, setIdeas] = useState([]);
   const [decorFunctions, setDecorFunctions] = useState([]);
@@ -1290,6 +1363,8 @@ function MainApp({ user }) {
       else setStaffMembers([]);
       if (data && data.businessExpenses) setBusinessExpenses(data.businessExpenses);
       else setBusinessExpenses([]);
+      if (data && data.vaultDocuments) setVaultDocuments(data.vaultDocuments);
+      else setVaultDocuments([]);
       if (data && data.ideas) setIdeas(data.ideas);
       else setIdeas([]);
       if (data && data.decorFunctions) setDecorFunctions(data.decorFunctions);
@@ -1364,10 +1439,10 @@ function MainApp({ user }) {
     if (!loaded) return;
     if (skipNextSharedSave.current) { skipNextSharedSave.current = false; return; }
     setSyncStatus("syncing");
-    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, ideas, decorFunctions, projects, customerLeads }, { merge: true })
+    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, vaultDocuments, ideas, decorFunctions, projects, customerLeads }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, ideas, decorFunctions, projects, customerLeads]);
+  }, [cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, vaultDocuments, ideas, decorFunctions, projects, customerLeads]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const dueFollowUps = (budgets || []).filter(b => b.followUpDate && b.followUpDate <= todayStr && b.status !== "Converted");
@@ -1499,6 +1574,7 @@ function MainApp({ user }) {
           <SidebarIcon expanded={sidebarExpanded} label="Clients" title="Clients" active={tab === "clients"} onClick={() => setTab("clients")}>👤</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Staff" title="Staff" active={tab === "staff"} onClick={() => setTab("staff")}>🧑‍💼</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Expenses & P&L" title="Expenses & P&L" active={tab === "expenses"} onClick={() => setTab("expenses")}>💸</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Document Vault" title="Document Vault" active={tab === "vault"} onClick={() => setTab("vault")}>🗄️</SidebarIcon>
           <div style={{ flex: 1 }}></div>
           <div style={{ position: "relative", marginBottom: 16 }}>
             <button
@@ -1825,6 +1901,7 @@ function MainApp({ user }) {
         )}
         {isAdmin && tab === "staff" && <StaffView staffMembers={staffMembers} setStaffMembers={setStaffMembers} logActivity={logActivity} />}
         {isAdmin && tab === "expenses" && <ExpensesView businessExpenses={businessExpenses} setBusinessExpenses={setBusinessExpenses} budgets={budgets} logActivity={logActivity} />}
+        {isAdmin && tab === "vault" && <DocumentVaultView vaultDocuments={vaultDocuments} setVaultDocuments={setVaultDocuments} logActivity={logActivity} />}
       </div>
       </div>
       {companySettingsOpen && (
@@ -2386,6 +2463,9 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
   const [sharing, setSharing] = useState(false);
   const [runSheetDraft, setRunSheetDraft] = useState({ time: "", activity: "", staff: "" });
   const [upiAmount, setUpiAmount] = useState("");
+  const [uploadingDeliveryPhoto, setUploadingDeliveryPhoto] = useState(false);
+  const [newTableDraft, setNewTableDraft] = useState({ name: "", capacity: "8" });
+  const [guestDraft, setGuestDraft] = useState({});
   const [checklistDraft, setChecklistDraft] = useState("");
   const [testimonials, setTestimonials] = useState([]);
   const [contractAcceptances, setContractAcceptances] = useState([]);
@@ -2441,6 +2521,58 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
   };
   const toggleChecklistItem = (id) => update({ packingChecklist: packingChecklist.map(c => c.id === id ? { ...c, checked: !c.checked } : c) });
   const removeChecklistItem = (id) => update({ packingChecklist: packingChecklist.filter(c => c.id !== id) });
+
+  const deliveryPhotos = budget.deliveryPhotos || [];
+  const uploadDeliveryPhoto = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    setUploadingDeliveryPhoto(true);
+    try {
+      const newPhotos = [];
+      for (const file of files) {
+        const path = `delivery/${budget.id}/${Date.now()}_${file.name}`;
+        const ref = window.__storage.ref().child(path);
+        await ref.put(file);
+        const url = await ref.getDownloadURL();
+        newPhotos.push({ id: uid(), url, storagePath: path });
+      }
+      const updatedPhotos = [...deliveryPhotos, ...newPhotos];
+      update({ deliveryPhotos: updatedPhotos });
+      if (budget.portalShareId) {
+        db.collection("clientPortals").doc(budget.portalShareId).set({ photos: updatedPhotos, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+      }
+    } catch (err) { alert("Upload failed: " + err.message); }
+    setUploadingDeliveryPhoto(false);
+  };
+  const removeDeliveryPhoto = (id) => {
+    const target = deliveryPhotos.find(p => p.id === id);
+    if (target && target.storagePath) window.__storage.ref().child(target.storagePath).delete().catch(() => {});
+    const updatedPhotos = deliveryPhotos.filter(p => p.id !== id);
+    update({ deliveryPhotos: updatedPhotos });
+    if (budget.portalShareId) {
+      db.collection("clientPortals").doc(budget.portalShareId).set({ photos: updatedPhotos, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+    }
+  };
+
+  const seatingTables = budget.seatingTables || [];
+  const addTable = () => {
+    if (!newTableDraft.name.trim()) return;
+    update({ seatingTables: [...seatingTables, { id: uid(), name: newTableDraft.name.trim(), capacity: Number(newTableDraft.capacity) || 8, guests: [] }] });
+    setNewTableDraft({ name: "", capacity: "8" });
+  };
+  const removeTable = (id) => update({ seatingTables: seatingTables.filter(t => t.id !== id) });
+  const addGuestToTable = (tableId) => {
+    const name = (guestDraft[tableId] || "").trim();
+    if (!name) return;
+    update({ seatingTables: seatingTables.map(t => t.id === tableId ? { ...t, guests: [...t.guests, name] } : t) });
+    setGuestDraft(prev => ({ ...prev, [tableId]: "" }));
+  };
+  const removeGuestFromTable = (tableId, idx) => {
+    update({ seatingTables: seatingTables.map(t => t.id === tableId ? { ...t, guests: t.guests.filter((_, i) => i !== idx) } : t) });
+  };
+  const assignedGuestNames = new Set(seatingTables.flatMap(t => t.guests));
+  const unassignedRsvpGuests = rsvps.filter(r => r.attending === "yes" && !assignedGuestNames.has(r.name));
 
   const CHECKLIST_TEMPLATES = {
     Wedding: ["Confirm DJ/music", "Lock final menu", "Confirm final headcount", "Confirm decor theme", "Book transport for family", "Confirm photographer/videographer", "Genset with fuel", "Confirm hotel room blocks"],
@@ -2655,6 +2787,32 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
       navigator.clipboard.writeText(url);
       alert("RSVP link copied:\n\n" + url);
     } catch (e) { alert("Could not create link: " + e.message); }
+  };
+
+  const getOrCreatePortalLink = async () => {
+    const id = budget.portalShareId || uid();
+    const fin = computeBudgetFinancials(budget);
+    try {
+      await db.collection("clientPortals").doc(id).set({
+        budgetName: budget.name || "", clientName: budget.clientName || "", date: budget.date || "",
+        eventStatus: budget.eventStatus || "",
+        totalAmount: isFinite(fin.finalBudget) ? fin.finalBudget : 0,
+        totalReceived: fin.totalReceived || 0,
+        photos: budget.deliveryPhotos || [],
+        updatedAt: Date.now()
+      });
+      if (!budget.portalShareId) update({ portalShareId: id });
+      const url = `${window.location.origin}${window.location.pathname}?portal=${id}`;
+      navigator.clipboard.writeText(url);
+      alert("Client portal link copied:\n\n" + url);
+    } catch (e) { alert("Could not create link: " + e.message); }
+  };
+
+  const setEventStatus = (status) => {
+    update({ eventStatus: status });
+    if (budget.portalShareId) {
+      db.collection("clientPortals").doc(budget.portalShareId).set({ eventStatus: status, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+    }
   };
 
   const getOrCreateShareLink = async () => {
@@ -2971,6 +3129,40 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
       </div>
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontWeight: 700 }}>Client Portal — Live Status & Photos</div>
+          <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={getOrCreatePortalLink}>🔗 Get / Update Portal Link</button>
+        </div>
+        <div style={{ fontSize: 11.5, color: "#8a8071", marginBottom: 10 }}>Status updates while the event is happening are pushed live once you've generated the link — no need to click "Update" again for status changes.</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          {["Preparing", "Setup Started", "Guests Arriving", "Event In Progress", "Wrapping Up", "Complete"].map(stage => (
+            <button
+              key={stage}
+              className="beo-btn"
+              onClick={() => setEventStatus(stage)}
+              style={{ fontSize: 11.5, padding: "6px 10px", background: budget.eventStatus === stage ? "#6B1E23" : "#F1EADA", color: budget.eventStatus === stage ? "#fff" : "#211D17" }}
+            >{stage}</button>
+          ))}
+        </div>
+
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Delivered Photos ({deliveryPhotos.length})</div>
+        {deliveryPhotos.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            {deliveryPhotos.map(p => (
+              <div key={p.id} style={{ position: "relative" }}>
+                <img src={p.url} alt="" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 6 }} onError={e => e.target.style.opacity = 0.2} />
+                <span onClick={() => removeDeliveryPhoto(p.id)} style={{ position: "absolute", top: 2, right: 2, background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, padding: "0 4px", borderRadius: 3, cursor: "pointer" }}>×</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <label className="beo-btn beo-btn-primary" style={{ cursor: uploadingDeliveryPhoto ? "default" : "pointer", opacity: uploadingDeliveryPhoto ? 0.6 : 1, fontSize: 12.5 }}>
+          {uploadingDeliveryPhoto ? "Uploading…" : "⬆ Upload Photos for Client"}
+          <input type="file" accept="image/*" multiple onChange={uploadDeliveryPhoto} disabled={uploadingDeliveryPhoto} style={{ display: "none" }} />
+        </label>
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Event Day Run Sheet</div>
         <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 140px 24px", gap: 6, marginBottom: 8 }}>
           <input className="beo-input" placeholder="Time" value={runSheetDraft.time} onChange={e => setRunSheetDraft(p => ({ ...p, time: e.target.value }))} style={{ fontSize: 12.5, padding: "5px 6px" }} />
@@ -3031,6 +3223,46 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
             </div>
           );
         })}
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Seating / Table Planner</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 24px", gap: 6, marginBottom: 12 }}>
+          <input className="beo-input" placeholder="Table name (e.g. Table 1, Family Table)" value={newTableDraft.name} onChange={e => setNewTableDraft(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === "Enter" && addTable()} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <input className="beo-input" type="number" placeholder="Seats" value={newTableDraft.capacity} onChange={e => setNewTableDraft(p => ({ ...p, capacity: e.target.value }))} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <button className="beo-btn beo-btn-primary" style={{ padding: "5px 8px" }} onClick={addTable}>＋</button>
+        </div>
+
+        {unassignedRsvpGuests.length > 0 && (
+          <div style={{ background: "#FAF6EE", borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12 }}>
+            <b>Unassigned (from RSVP):</b> {unassignedRsvpGuests.map(r => r.name).join(", ")}
+          </div>
+        )}
+
+        {seatingTables.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 12.5 }}>No tables added yet.</div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+            {seatingTables.map(t => (
+              <div key={t.id} style={{ border: "1px solid #F1EADA", borderRadius: 8, padding: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <b style={{ fontSize: 13 }}>{t.name}</b>
+                  <span style={{ fontSize: 11, color: t.guests.length > t.capacity ? "#c9585d" : "#8a8071" }}>{t.guests.length}/{t.capacity}</span>
+                  <span onClick={() => removeTable(t.id)} style={{ color: "#c98b8e", cursor: "pointer", fontSize: 12 }}>🗑</span>
+                </div>
+                {t.guests.map((g, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "2px 0" }}>
+                    <span>{g}</span><span onClick={() => removeGuestFromTable(t.id, i)} style={{ color: "#c98b8e", cursor: "pointer" }}>×</span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                  <input className="beo-input" placeholder="Add guest" value={guestDraft[t.id] || ""} onChange={e => setGuestDraft(prev => ({ ...prev, [t.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && addGuestToTable(t.id)} style={{ fontSize: 11.5, padding: "4px 6px" }} />
+                  <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => addGuestToTable(t.id)}>＋</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
@@ -6007,6 +6239,82 @@ function ExpensesView({ businessExpenses, setBusinessExpenses, budgets, logActiv
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function DocumentVaultView({ vaultDocuments, setVaultDocuments, logActivity }) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+  const [newCategory, setNewCategory] = useState("Company Registration");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+
+  const CATEGORIES = ["Company Registration", "Insurance", "Vendor Contracts", "Licenses & Permits", "Financial", "Other"];
+
+  const uploadDoc = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadError(""); setUploading(true);
+    try {
+      const path = `vault/${Date.now()}_${file.name}`;
+      const ref = window.__storage.ref().child(path);
+      await ref.put(file);
+      const url = await ref.getDownloadURL();
+      const doc = { id: uid(), label: newLabel.trim() || file.name, category: newCategory, url, storagePath: path, uploadedAt: Date.now() };
+      setVaultDocuments(prev => [doc, ...prev]);
+      if (logActivity) logActivity(`Added document "${doc.label}" to vault`);
+      setNewLabel("");
+    } catch (err) { setUploadError("Upload failed: " + err.message); }
+    setUploading(false);
+  };
+  const removeDoc = (doc) => {
+    if (doc.storagePath) window.__storage.ref().child(doc.storagePath).delete().catch(() => {});
+    setVaultDocuments(prev => prev.filter(d => d.id !== doc.id));
+  };
+
+  const filtered = categoryFilter === "All" ? vaultDocuments : vaultDocuments.filter(d => d.category === categoryFilter);
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 6 }}>🗄️ Document Vault</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", marginBottom: 16 }}>Company paperwork — registration certificates, insurance, licenses — kept separate from client and vendor files.</div>
+
+      <div className="beo-card" style={{ padding: 14, marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input className="beo-input" placeholder="Label (optional — filename used if blank)" value={newLabel} onChange={e => setNewLabel(e.target.value)} style={{ flex: "1 1 200px" }} />
+        <select className="beo-input" value={newCategory} onChange={e => setNewCategory(e.target.value)} style={{ width: "auto" }}>
+          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <label className="beo-btn beo-btn-primary" style={{ cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.6 : 1 }}>
+          {uploading ? "Uploading…" : "⬆ Upload Document"}
+          <input type="file" onChange={uploadDoc} disabled={uploading} style={{ display: "none" }} />
+        </label>
+      </div>
+      {uploadError && <div style={{ color: "#c9585d", fontSize: 12, marginBottom: 10 }}>{uploadError}</div>}
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        <button className="beo-btn" onClick={() => setCategoryFilter("All")} style={{ fontSize: 12, padding: "6px 12px", background: categoryFilter === "All" ? "#6B1E23" : "#F1EADA", color: categoryFilter === "All" ? "#fff" : "#211D17" }}>All</button>
+        {CATEGORIES.map(c => (
+          <button key={c} className="beo-btn" onClick={() => setCategoryFilter(c)} style={{ fontSize: 12, padding: "6px 12px", background: categoryFilter === c ? "#6B1E23" : "#F1EADA", color: categoryFilter === c ? "#fff" : "#211D17" }}>{c}</button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>No documents in this category yet.</div>
+      ) : (
+        <div className="beo-card" style={{ padding: 16 }}>
+          {filtered.map(d => (
+            <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 4px", borderTop: "1px solid #F1EADA", fontSize: 13.5 }}>
+              <div>
+                <a href={d.url} target="_blank" rel="noreferrer" style={{ color: "#6B1E23", fontWeight: 600, textDecoration: "none" }}>📄 {d.label}</a>
+                <div style={{ fontSize: 11, color: "#8a8071" }}>{d.category} · {new Date(d.uploadedAt).toLocaleDateString("en-IN")}</div>
+              </div>
+              <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeDoc(d)}>🗑</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
