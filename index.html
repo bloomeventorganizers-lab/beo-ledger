@@ -584,6 +584,113 @@
     doc.save(`${(response.clientName || "menu_selection").replace(/[^a-z0-9]/gi, "_")}.pdf`);
   };
 
+  window.generateInvoicePdf = function (budget, companySettings, financials, invoiceNumber) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 16;
+    const CREAM = [253, 251, 243];
+    const PRIMARY = [107, 30, 35];
+    const ACCENT = [184, 147, 74];
+    const cs = companySettings || {};
+    const inr = (n) => "Rs. " + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+    let y = 22;
+
+    doc.setFillColor(CREAM[0], CREAM[1], CREAM[2]);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+    doc.setFont("times", "bold"); doc.setFontSize(20);
+    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.text("TAX INVOICE", pageWidth / 2, y, { align: "center" });
+    y += 9;
+    doc.setFont("times", "bold"); doc.setFontSize(13);
+    doc.setTextColor(40, 38, 33);
+    doc.text(cs.companyName || "Your Company", pageWidth / 2, y, { align: "center" });
+    y += 12;
+
+    doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+    doc.setLineWidth(0.3);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 8;
+
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+    doc.setTextColor(55, 50, 45);
+    doc.text(`Invoice No: ${invoiceNumber}`, margin, y);
+    doc.text(`Invoice Date: ${new Date().toISOString().slice(0, 10)}`, pageWidth - margin, y, { align: "right" });
+    y += 6;
+    if (cs.gstin) { doc.text(`GSTIN: ${cs.gstin}`, margin, y); y += 6; }
+    if (cs.address) { doc.text(cs.address, margin, y); y += 6; }
+    y += 4;
+
+    doc.setFont("times", "bold"); doc.setFontSize(10.5);
+    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.text("Bill To:", margin, y);
+    y += 6;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+    doc.setTextColor(55, 50, 45);
+    doc.text(budget.clientName || "—", margin, y);
+    y += 5.5;
+    if (budget.clientPhone) { doc.text(budget.clientPhone, margin, y); y += 5.5; }
+    y += 6;
+
+    doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.rect(margin, y, pageWidth - margin * 2, 9, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("times", "bold"); doc.setFontSize(10);
+    doc.text("DESCRIPTION", margin + 4, y + 6.2);
+    doc.text("AMOUNT", pageWidth - margin - 4, y + 6.2, { align: "right" });
+    y += 9;
+
+    const rows = [
+      ["Event services (as per quotation)", financials.baseCost + financials.profit],
+    ];
+    if (financials.commissionAmount) rows.push(["Commission", financials.commissionAmount]);
+    rows.forEach((row, i) => {
+      if (i % 2 === 0) { doc.setFillColor(247, 242, 230); doc.rect(margin, y, pageWidth - margin * 2, 8, "F"); }
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+      doc.setTextColor(45, 40, 35);
+      doc.text(row[0], margin + 4, y + 5.5);
+      doc.text(inr(row[1]), pageWidth - margin - 4, y + 5.5, { align: "right" });
+      y += 8;
+    });
+    y += 4;
+    doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+    doc.setLineWidth(0.3);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 8;
+
+    const subtotal = financials.baseCost + financials.profit + (financials.commissionAmount || 0);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+    doc.setTextColor(55, 50, 45);
+    doc.text("Subtotal", margin, y); doc.text(inr(subtotal), pageWidth - margin, y, { align: "right" }); y += 6;
+    if (budget.discountAmount) { doc.text("Discount", margin, y); doc.text("-" + inr(budget.discountAmount), pageWidth - margin, y, { align: "right" }); y += 6; }
+    const gstPercent = Number(budget.gstPercent) || 0;
+    const taxableAmount = subtotal - (Number(budget.discountAmount) || 0);
+    const gstAmount = taxableAmount * (gstPercent / 100);
+    if (gstPercent > 0) {
+      const cgst = gstAmount / 2, sgst = gstAmount / 2;
+      doc.text(`CGST (${(gstPercent / 2).toFixed(1)}%)`, margin, y); doc.text(inr(cgst), pageWidth - margin, y, { align: "right" }); y += 6;
+      doc.text(`SGST (${(gstPercent / 2).toFixed(1)}%)`, margin, y); doc.text(inr(sgst), pageWidth - margin, y, { align: "right" }); y += 6;
+    }
+    y += 4;
+
+    doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.roundedRect(margin, y, pageWidth - margin * 2, 16, 2, 2, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("times", "bold"); doc.setFontSize(12);
+    doc.text("Total Amount Payable", margin + 6, y + 6.5);
+    doc.setFontSize(16);
+    doc.text(inr(taxableAmount + gstAmount), pageWidth - margin - 6, y + 12, { align: "right" });
+    y += 26;
+
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+    doc.setTextColor(120, 115, 108);
+    doc.text("This is a computer-generated invoice.", margin, y);
+
+    doc.save(`Invoice_${invoiceNumber}.pdf`);
+  };
+
   window.askGemini = async function (prompt, apiKey) {
     if (!apiKey) throw new Error("No Gemini API key set — add one in Company Settings first.");
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
@@ -708,17 +815,21 @@ const photoUrlOf = (p) => (p && typeof p === "object" ? p.url : p);
 function App() {
   const shareId = new URLSearchParams(window.location.search).get("share");
   const menuId = new URLSearchParams(window.location.search).get("menu");
+  const testimonialId = new URLSearchParams(window.location.search).get("testimonial");
+  const contractId = new URLSearchParams(window.location.search).get("contract");
   const [user, setUser] = useState(undefined);
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
-    if (shareId || menuId) return;
+    if (shareId || menuId || testimonialId || contractId) return;
     const unsub = auth.onAuthStateChanged(u => setUser(u || null));
     return unsub;
   }, []);
 
   if (shareId) return <PublicQuoteView shareId={shareId} />;
   if (menuId) return <PublicMenuView menuId={menuId} />;
+  if (testimonialId) return <PublicTestimonialView requestId={testimonialId} />;
+  if (contractId) return <PublicContractView contractId={contractId} />;
   if (user === undefined) return <div style={{ padding: 40, color: "#6b1e23" }}>Checking sign-in…</div>;
   if (user === null) return <LoginScreen onError={setAuthError} error={authError} />;
   return <MainApp user={user} />;
@@ -909,6 +1020,122 @@ function PublicMenuView({ menuId }) {
   );
 }
 
+function PublicTestimonialView({ requestId }) {
+  const [data, setData] = useState(undefined);
+  const [name, setName] = useState("");
+  const [rating, setRating] = useState(5);
+  const [text, setText] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    db.collection("publicTestimonialRequests").doc(requestId).get()
+      .then(snap => setData(snap.exists ? snap.data() : null))
+      .catch(() => setData(null));
+  }, [requestId]);
+
+  if (data === undefined) return <div style={{ padding: 40, textAlign: "center" }}>Loading…</div>;
+  if (data === null) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This link is invalid or no longer available.</div>;
+
+  if (submitted) {
+    return (
+      <div style={{ maxWidth: 500, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+        <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", marginBottom: 10 }}>Thank you!</div>
+        <div style={{ fontSize: 14 }}>Your feedback means a lot to us.</div>
+      </div>
+    );
+  }
+
+  const handleSubmit = async () => {
+    if (!text.trim()) { setErrorMsg("Please write a few words before submitting."); return; }
+    setSubmitting(true); setErrorMsg("");
+    try {
+      await db.collection("testimonialSubmissions").add({ requestId, name: name.trim(), rating, text: text.trim(), submittedAt: Date.now() });
+      setSubmitted(true);
+    } catch (e) { setErrorMsg("Could not submit — please check your connection and try again."); }
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 500, margin: "0 auto", padding: "40px 20px" }}>
+      <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 4 }}>How was your experience?</div>
+      {data.budgetName && <div style={{ fontSize: 13, color: "#8a8071", textAlign: "center", marginBottom: 24 }}>{data.budgetName}</div>}
+      <div className="beo-card" style={{ padding: 20 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Your Name</label>
+        <input className="beo-input" value={name} onChange={e => setName(e.target.value)} style={{ marginTop: 4, marginBottom: 14 }} />
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Rating</label>
+        <div style={{ display: "flex", gap: 6, marginTop: 6, marginBottom: 14 }}>
+          {[1, 2, 3, 4, 5].map(n => (
+            <span key={n} onClick={() => setRating(n)} style={{ fontSize: 28, cursor: "pointer", color: n <= rating ? "#B8934A" : "#E4DCC8" }}>★</span>
+          ))}
+        </div>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Your Feedback</label>
+        <textarea className="beo-input" rows={4} value={text} onChange={e => setText(e.target.value)} style={{ marginTop: 4, marginBottom: 14, resize: "vertical", fontFamily: "inherit" }} />
+        {errorMsg && <div style={{ color: "#c9585d", fontSize: 12.5, marginBottom: 10 }}>{errorMsg}</div>}
+        <button className="beo-btn beo-btn-primary" disabled={submitting} onClick={handleSubmit} style={{ width: "100%", padding: "12px" }}>{submitting ? "Submitting…" : "Submit Feedback"}</button>
+      </div>
+    </div>
+  );
+}
+
+function PublicContractView({ contractId }) {
+  const [data, setData] = useState(undefined);
+  const [name, setName] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    db.collection("publicContracts").doc(contractId).get()
+      .then(snap => setData(snap.exists ? snap.data() : null))
+      .catch(() => setData(null));
+  }, [contractId]);
+
+  if (data === undefined) return <div style={{ padding: 40, textAlign: "center" }}>Loading…</div>;
+  if (data === null) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This link is invalid or no longer available.</div>;
+
+  if (submitted) {
+    return (
+      <div style={{ maxWidth: 500, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+        <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", marginBottom: 10 }}>Agreement recorded</div>
+        <div style={{ fontSize: 14 }}>Thank you — your acceptance has been saved.</div>
+      </div>
+    );
+  }
+
+  const handleSubmit = async () => {
+    if (!name.trim()) { setErrorMsg("Please type your full name."); return; }
+    if (!agreed) { setErrorMsg("Please check the box confirming you agree."); return; }
+    setSubmitting(true); setErrorMsg("");
+    try {
+      await db.collection("contractAcceptances").add({ contractId, name: name.trim(), acceptedAt: Date.now() });
+      setSubmitted(true);
+    } catch (e) { setErrorMsg("Could not submit — please check your connection and try again."); }
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px" }}>
+      <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 4 }}>Booking Agreement</div>
+      {data.budgetName && <div style={{ fontSize: 13, color: "#8a8071", textAlign: "center", marginBottom: 24 }}>{data.budgetName}</div>}
+      <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ whiteSpace: "pre-wrap", fontSize: 13.5, lineHeight: 1.6, color: "#333" }}>{data.contractText}</div>
+      </div>
+      <div className="beo-card" style={{ padding: 20 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Type your full name to sign</label>
+        <input className="beo-input" value={name} onChange={e => setName(e.target.value)} style={{ marginTop: 4, marginBottom: 14 }} />
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14 }}>
+          <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} /> I have read and agree to the terms above
+        </label>
+        {errorMsg && <div style={{ color: "#c9585d", fontSize: 12.5, marginBottom: 10 }}>{errorMsg}</div>}
+        <button className="beo-btn beo-btn-primary" disabled={submitting} onClick={handleSubmit} style={{ width: "100%", padding: "12px" }}>{submitting ? "Submitting…" : "Accept & Sign"}</button>
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ onError, error }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -955,6 +1182,8 @@ function MainApp({ user }) {
   const [activityLog, setActivityLog] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [vendorCategories, setVendorCategories] = useState(["Anchor", "Music Band", "Live Band", "Singer", "Other Artist", "Vendor", "Other"]);
+  const [staffMembers, setStaffMembers] = useState([]);
+  const [businessExpenses, setBusinessExpenses] = useState([]);
   const [activeVendorId, setActiveVendorId] = useState(null);
   const [ideas, setIdeas] = useState([]);
   const [decorFunctions, setDecorFunctions] = useState([]);
@@ -993,6 +1222,10 @@ function MainApp({ user }) {
       if (data && data.vendors) setVendors(data.vendors);
       else setVendors([]);
       if (data && data.vendorCategories) setVendorCategories(data.vendorCategories);
+      if (data && data.staffMembers) setStaffMembers(data.staffMembers);
+      else setStaffMembers([]);
+      if (data && data.businessExpenses) setBusinessExpenses(data.businessExpenses);
+      else setBusinessExpenses([]);
       if (data && data.ideas) setIdeas(data.ideas);
       else setIdeas([]);
       if (data && data.decorFunctions) setDecorFunctions(data.decorFunctions);
@@ -1067,10 +1300,10 @@ function MainApp({ user }) {
     if (!loaded) return;
     if (skipNextSharedSave.current) { skipNextSharedSave.current = false; return; }
     setSyncStatus("syncing");
-    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, vendorCategories, ideas, decorFunctions, projects, customerLeads }, { merge: true })
+    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, ideas, decorFunctions, projects, customerLeads }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [cities, corpQuotes, activityLog, vendors, vendorCategories, ideas, decorFunctions, projects, customerLeads]);
+  }, [cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, ideas, decorFunctions, projects, customerLeads]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const dueFollowUps = (budgets || []).filter(b => b.followUpDate && b.followUpDate <= todayStr && b.status !== "Converted");
@@ -1194,6 +1427,8 @@ function MainApp({ user }) {
           <SidebarIcon expanded={sidebarExpanded} label="Proposals" title="Proposals" active={tab === "proposals" || tab === "proposalBuilder"} onClick={() => setTab("proposals")}>✦</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Catering" title="Catering" active={tab === "catering" || tab === "cateringDetail"} onClick={() => setTab("catering")}>🍽️</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Clients" title="Clients" active={tab === "clients"} onClick={() => setTab("clients")}>👤</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Staff" title="Staff" active={tab === "staff"} onClick={() => setTab("staff")}>🧑‍💼</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Expenses & P&L" title="Expenses & P&L" active={tab === "expenses"} onClick={() => setTab("expenses")}>💸</SidebarIcon>
           <div style={{ flex: 1 }}></div>
           <div style={{ position: "relative", marginBottom: 16 }}>
             <button
@@ -1256,9 +1491,22 @@ function MainApp({ user }) {
                     {dueFollowUps.length === 0 ? (
                       <div style={{ padding: "14px", fontSize: 12.5, color: "#a39a89" }}>Nothing due today.</div>
                     ) : dueFollowUps.map(b => (
-                      <div key={b.id} onClick={() => { openBudget(b.id); setNotifPanelOpen(false); }} style={{ padding: "10px 14px", cursor: "pointer", fontSize: 12.5, borderBottom: "1px solid #F1EADA" }}>
-                        <div style={{ fontWeight: 600 }}>{b.clientName || b.name}</div>
-                        <div style={{ color: "#8a8071", fontSize: 11 }}>Follow-up was due {b.followUpDate}</div>
+                      <div key={b.id} style={{ padding: "10px 14px", fontSize: 12.5, borderBottom: "1px solid #F1EADA", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <div onClick={() => { openBudget(b.id); setNotifPanelOpen(false); }} style={{ cursor: "pointer", flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.clientName || b.name}</div>
+                          <div style={{ color: "#8a8071", fontSize: 11 }}>Follow-up was due {b.followUpDate}</div>
+                        </div>
+                        {b.clientPhone && (
+                          <span
+                            title="Send WhatsApp reminder"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const msg = `Hi ${b.clientName || ""}, just following up on your event with us — would love to hear your thoughts and help with any questions!`;
+                              window.open(waLinkWithText(b.clientPhone, msg), "_blank");
+                            }}
+                            style={{ cursor: "pointer", fontSize: 16, flexShrink: 0 }}
+                          >💬</span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1349,7 +1597,7 @@ function MainApp({ user }) {
         </div>
       )}
       <div style={{ padding: 20, maxWidth: "none" }}>
-        {isAdmin && tab === "dashboard" && <DashboardView budgets={budgets} onOpen={openBudget} activityLog={activityLog} />}
+        {isAdmin && tab === "dashboard" && <DashboardView budgets={budgets} corpQuotes={corpQuotes} dueFollowUps={dueFollowUps} onOpen={openBudget} activityLog={activityLog} />}
         {isAdmin && tab === "calendar" && <CalendarView budgets={budgets} corpQuotes={corpQuotes} onOpenBudget={openBudget} onOpenQuote={openQuote} />}
         {isAdmin && tab === "quickquote" && (
           <QuickQuoteView
@@ -1379,6 +1627,8 @@ function MainApp({ user }) {
             recentItems={recentItems}
             setRecentItems={setRecentItems}
             bundles={bundles}
+            companySettings={companySettings}
+            setCompanySettings={setCompanySettings}
             onBack={() => setTab("budgets")}
             onOpenBudget={openBudget}
             onChange={(updated) => setBudgets(prev => prev.map(b => b.id === updated.id ? updated : b))}
@@ -1499,6 +1749,8 @@ function MainApp({ user }) {
             onOpenQuote={openQuote}
           />
         )}
+        {isAdmin && tab === "staff" && <StaffView staffMembers={staffMembers} setStaffMembers={setStaffMembers} logActivity={logActivity} />}
+        {isAdmin && tab === "expenses" && <ExpensesView businessExpenses={businessExpenses} setBusinessExpenses={setBusinessExpenses} budgets={budgets} logActivity={logActivity} />}
       </div>
       </div>
       {companySettingsOpen && (
@@ -1833,7 +2085,7 @@ function StatCard({ label, value, sub, color }) {
   );
 }
 
-function DashboardView({ budgets, onOpen, activityLog }) {
+function DashboardView({ budgets, corpQuotes, dueFollowUps, onOpen, activityLog }) {
   const now = new Date();
   const curMonth = now.getMonth(), curYear = now.getFullYear();
 
@@ -1877,6 +2129,12 @@ function DashboardView({ budgets, onOpen, activityLog }) {
   });
   const topReferrals = Object.entries(referralCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const eventsToday = [
+    ...budgets.filter(b => b.date === todayKey).map(b => ({ type: "Client Budget", label: b.name, sub: b.clientName, id: b.id })),
+    ...(corpQuotes || []).filter(q => q.date === todayKey).map(q => ({ type: "Corporate Quote", label: q.name, sub: q.clientName, id: q.id }))
+  ];
+
   const statusChartData = {
     labels: ["Lead", "Connected", "Converted"],
     values: [leads.length, connected.length, converted.length],
@@ -1909,6 +2167,27 @@ function DashboardView({ budgets, onOpen, activityLog }) {
   return (
     <div>
       <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 18 }}>Dashboard</div>
+
+      {(dueFollowUps.length > 0 || eventsToday.length > 0) && (
+        <div className="beo-card" style={{ padding: 18, marginBottom: 20, borderLeft: "4px solid #B8934A" }}>
+          <div className="beo-serif" style={{ fontSize: 15, fontWeight: 700, color: "#6B1E23", marginBottom: 10 }}>Today's Priorities</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 6 }}>Follow-ups Due ({dueFollowUps.length})</div>
+              {dueFollowUps.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5 }}>None due.</div> : dueFollowUps.map(b => (
+                <div key={b.id} onClick={() => onOpen(b.id)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", color: "#6B1E23" }}>{b.clientName || b.name}</div>
+              ))}
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 6 }}>Events Today ({eventsToday.length})</div>
+              {eventsToday.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5 }}>Nothing scheduled today.</div> : eventsToday.map((e, i) => (
+                <div key={i} style={{ fontSize: 13, padding: "4px 0" }}>{e.label} <span style={{ color: "#8a8071", fontSize: 11.5 }}>({e.type})</span></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 14 }}>
         <StatCard label="Pipeline Value" value={inr(pipelineValue)} sub={`${leads.length} lead${leads.length === 1 ? "" : "s"} + ${connected.length} connected`} color="#8a8071" />
         <StatCard label="Converted Revenue" value={inr(convertedRevenue)} sub={`${converted.length} converted deal${converted.length === 1 ? "" : "s"}`} color="#2E7D32" />
@@ -2000,7 +2279,7 @@ function BudgetsListView({ budgets, setBudgets, onOpen, onCreate }) {
   );
 }
 
-function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentItems, bundles, onBack, onOpenBudget, onChange }) {
+function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentItems, bundles, companySettings, setCompanySettings, onBack, onOpenBudget, onChange }) {
   const [search, setSearch] = useState("");
   const [activeDayId, setActiveDayId] = useState(null);
   const [activeEventId, setActiveEventId] = useState(null);
@@ -2010,10 +2289,50 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
   const [newEventTime, setNewEventTime] = useState("");
   const [newNoteText, setNewNoteText] = useState("");
   const [sharing, setSharing] = useState(false);
+  const [runSheetDraft, setRunSheetDraft] = useState({ time: "", activity: "", staff: "" });
+  const [upiAmount, setUpiAmount] = useState("");
+  const [checklistDraft, setChecklistDraft] = useState("");
+  const [testimonials, setTestimonials] = useState([]);
+  const [contractAcceptances, setContractAcceptances] = useState([]);
   const migratedRef = useRef(false);
+
+  useEffect(() => {
+    if (!budget || !budget.testimonialShareId) return;
+    const unsub = db.collection("testimonialSubmissions").where("requestId", "==", budget.testimonialShareId).onSnapshot(snap => {
+      const list = [];
+      snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+      setTestimonials(list);
+    });
+    return unsub;
+  }, [budget && budget.testimonialShareId]);
+
+  useEffect(() => {
+    if (!budget || !budget.contractShareId) return;
+    const unsub = db.collection("contractAcceptances").where("contractId", "==", budget.contractShareId).onSnapshot(snap => {
+      const list = [];
+      snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+      setContractAcceptances(list);
+    });
+    return unsub;
+  }, [budget && budget.contractShareId]);
 
   if (!budget) return null;
   const update = (patch) => onChange({ ...budget, ...patch });
+  const runSheet = budget.runSheet || [];
+  const packingChecklist = budget.packingChecklist || [];
+  const addRunSheetItem = () => {
+    if (!runSheetDraft.activity.trim()) return;
+    update({ runSheet: [...runSheet, { id: uid(), ...runSheetDraft }].sort((a, b) => (a.time || "").localeCompare(b.time || "")) });
+    setRunSheetDraft({ time: "", activity: "", staff: "" });
+  };
+  const removeRunSheetItem = (id) => update({ runSheet: runSheet.filter(r => r.id !== id) });
+  const addChecklistItem = () => {
+    if (!checklistDraft.trim()) return;
+    update({ packingChecklist: [...packingChecklist, { id: uid(), text: checklistDraft.trim(), checked: false }] });
+    setChecklistDraft("");
+  };
+  const toggleChecklistItem = (id) => update({ packingChecklist: packingChecklist.map(c => c.id === id ? { ...c, checked: !c.checked } : c) });
+  const removeChecklistItem = (id) => update({ packingChecklist: packingChecklist.filter(c => c.id !== id) });
   const days = budget.days || [];
 
   // One-time migration: old flat `lines` budgets become a single Day 1 / Event with those lines
@@ -2200,6 +2519,33 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
     }
   };
 
+  const getOrCreateTestimonialLink = async () => {
+    const id = budget.testimonialShareId || uid();
+    try {
+      await db.collection("publicTestimonialRequests").doc(id).set({
+        budgetName: budget.name || "", clientName: budget.clientName || "", updatedAt: Date.now()
+      });
+      if (!budget.testimonialShareId) update({ testimonialShareId: id });
+      const url = `${window.location.origin}${window.location.pathname}?testimonial=${id}`;
+      navigator.clipboard.writeText(url);
+      alert("Testimonial request link copied:\n\n" + url);
+    } catch (e) { alert("Could not create link: " + e.message); }
+  };
+
+  const getOrCreateContractLink = async () => {
+    if (!budget.contractText || !budget.contractText.trim()) { alert("Add contract text first."); return; }
+    const id = budget.contractShareId || uid();
+    try {
+      await db.collection("publicContracts").doc(id).set({
+        contractText: budget.contractText, budgetName: budget.name || "", clientName: budget.clientName || "", updatedAt: Date.now()
+      });
+      if (!budget.contractShareId) update({ contractShareId: id });
+      const url = `${window.location.origin}${window.location.pathname}?contract=${id}`;
+      navigator.clipboard.writeText(url);
+      alert("Contract link copied:\n\n" + url);
+    } catch (e) { alert("Could not create link: " + e.message); }
+  };
+
   const history = budget.history || [];
   const otherClientBudgets = (budget.clientPhone && budget.clientPhone.trim())
     ? (allBudgets || []).filter(b => b.id !== budget.id && b.clientPhone && b.clientPhone.trim() === budget.clientPhone.trim())
@@ -2227,6 +2573,19 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
     window.generatePdf({ ...config, filename: (budget.clientName || budget.name || "quotation").replace(/[^a-z0-9]/gi, "_") });
   };
 
+  const exportInvoice = () => {
+    const cs = companySettings || {};
+    let invoiceNumber = budget.invoiceNumber;
+    if (!invoiceNumber) {
+      const next = cs.nextInvoiceNumber || 1;
+      invoiceNumber = `INV-${String(next).padStart(4, "0")}`;
+      update({ invoiceNumber });
+      if (setCompanySettings) setCompanySettings({ ...cs, nextInvoiceNumber: next + 1 });
+    }
+    const financials = computeBudgetFinancials(budget);
+    window.generateInvoicePdf(budget, cs, financials, invoiceNumber);
+  };
+
   return (
     <div>
       <button className="beo-btn beo-btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>← Back to budgets</button>
@@ -2244,6 +2603,7 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
           ))}
         </div>
         <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
+        <button className="beo-btn beo-btn-ghost" onClick={exportInvoice}>🧾 Export Tax Invoice</button>
         <button
           className="beo-btn"
           disabled={sharing}
@@ -2331,6 +2691,36 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
             ))}
             {advancePayments.length > 0 && <div style={{ textAlign: "right", fontSize: 12.5, fontWeight: 700, color: "#2E7D32", marginTop: 8 }}>Total received: {inr(totalReceived)}</div>}
 
+            {companySettings && companySettings.upiId && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #E4DCC8" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <input className="beo-input" type="number" placeholder="Amount to request ₹" value={upiAmount} onChange={e => setUpiAmount(e.target.value)} style={{ width: 160, fontSize: 12.5, padding: "6px 8px" }} />
+                  <button
+                    className="beo-btn beo-btn-primary"
+                    style={{ fontSize: 12 }}
+                    onClick={() => {
+                      const amt = Number(upiAmount) || 0;
+                      if (amt <= 0) { alert("Enter an amount first."); return; }
+                      const link = `upi://pay?pa=${encodeURIComponent(companySettings.upiId)}&pn=${encodeURIComponent(companySettings.companyName || "Payment")}&am=${amt}&cu=INR&tn=${encodeURIComponent(budget.name || "Event Payment")}`;
+                      window.open(link, "_blank");
+                    }}
+                  >💳 Open UPI App</button>
+                  {budget.clientPhone && (
+                    <button
+                      className="beo-btn"
+                      style={{ background: "#25D366", color: "#fff", fontSize: 12 }}
+                      onClick={() => {
+                        const amt = Number(upiAmount) || 0;
+                        if (amt <= 0) { alert("Enter an amount first."); return; }
+                        const msg = `Hi ${budget.clientName || ""}, please pay ${inr(amt)} via UPI to ${companySettings.upiId} for ${budget.name || "your event"}. Thank you!`;
+                        window.open(waLinkWithText(budget.clientPhone, msg), "_blank");
+                      }}
+                    >💬 Send Payment Request</button>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div style={{ fontWeight: 700, fontSize: 14, marginTop: 16, marginBottom: 8 }}>Notes</div>
             <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
               <input className="beo-input" placeholder="Add a note…" value={newNoteText} onChange={e => setNewNoteText(e.target.value)} onKeyDown={e => e.key === "Enter" && addNote()} />
@@ -2357,6 +2747,73 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
           <div key={h.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
             <div><b>{h.label}</b> · {new Date(h.timestamp).toLocaleString("en-IN")} · Total: {h.total}</div>
             <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => restoreVersion(h)}>Restore</button>
+          </div>
+        ))}
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontWeight: 700 }}>Testimonial Request</div>
+          <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={getOrCreateTestimonialLink}>🔗 Get Link</button>
+        </div>
+        {testimonials.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 12.5 }}>No testimonials submitted yet. Generate a link and send it to your client after the event.</div>
+        ) : testimonials.map(t => (
+          <div key={t.id} style={{ padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+            <div style={{ fontWeight: 700 }}>{t.name || "Anonymous"} — {"★".repeat(t.rating || 0)}{"☆".repeat(5 - (t.rating || 0))}</div>
+            <div style={{ color: "#5a5348", marginTop: 2 }}>{t.text}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontWeight: 700 }}>Digital Contract</div>
+          <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={getOrCreateContractLink}>🔗 Get Link</button>
+        </div>
+        <div style={{ fontSize: 11, color: "#a39a89", marginBottom: 8 }}>Note: this is a lightweight typed-name acceptance, not a cryptographically verified e-signature — useful as a recorded agreement, not a substitute for legal advice on binding contracts.</div>
+        <textarea className="beo-input" rows={4} placeholder="Paste your booking terms / agreement text here…" value={budget.contractText || ""} onChange={e => update({ contractText: e.target.value })} style={{ resize: "vertical", fontFamily: "inherit", marginBottom: 10 }} />
+        {contractAcceptances.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 12.5 }}>Not yet accepted.</div>
+        ) : contractAcceptances.map(a => (
+          <div key={a.id} style={{ padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5, color: "#2E7D32" }}>
+            ✔ Accepted by <b>{a.name}</b> on {a.acceptedAt ? new Date(a.acceptedAt).toLocaleString("en-IN") : ""}
+          </div>
+        ))}
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Event Day Run Sheet</div>
+        <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 140px 24px", gap: 6, marginBottom: 8 }}>
+          <input className="beo-input" placeholder="Time" value={runSheetDraft.time} onChange={e => setRunSheetDraft(p => ({ ...p, time: e.target.value }))} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <input className="beo-input" placeholder="Activity (e.g. Baraat arrival)" value={runSheetDraft.activity} onChange={e => setRunSheetDraft(p => ({ ...p, activity: e.target.value }))} onKeyDown={e => e.key === "Enter" && addRunSheetItem()} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <input className="beo-input" placeholder="Staff assigned" value={runSheetDraft.staff} onChange={e => setRunSheetDraft(p => ({ ...p, staff: e.target.value }))} onKeyDown={e => e.key === "Enter" && addRunSheetItem()} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <button className="beo-btn beo-btn-primary" style={{ padding: "5px 8px" }} onClick={addRunSheetItem}>＋</button>
+        </div>
+        {runSheet.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 12.5 }}>No timeline entries yet.</div>
+        ) : runSheet.map(r => (
+          <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+            <div><b style={{ color: "#6B1E23" }}>{r.time || "—"}</b> · {r.activity}{r.staff ? ` — ${r.staff}` : ""}</div>
+            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeRunSheetItem(r.id)}>🗑</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Equipment / Packing Checklist</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          <input className="beo-input" placeholder="e.g. 2x DJ speakers, Genset with fuel" value={checklistDraft} onChange={e => setChecklistDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && addChecklistItem()} />
+          <button className="beo-btn beo-btn-primary" onClick={addChecklistItem}>＋</button>
+        </div>
+        {packingChecklist.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 12.5 }}>No checklist items yet.</div>
+        ) : packingChecklist.map(c => (
+          <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: c.checked ? "line-through" : "none", color: c.checked ? "#a39a89" : "#211D17" }}>
+              <input type="checkbox" checked={c.checked} onChange={() => toggleChecklistItem(c.id)} /> {c.text}
+            </label>
+            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeChecklistItem(c.id)}>🗑</span>
           </div>
         ))}
       </div>
@@ -3244,6 +3701,7 @@ function VendorsView({ vendors, setVendors, vendorCategories, setVendorCategorie
               <div style={{ fontWeight: 700, fontSize: 14.5 }}>{v.name}</div>
               {v.description && <div style={{ fontSize: 12, color: "#5a5348", marginTop: 3 }}>{v.description}</div>}
               <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>{v.officeLocation || "No location added"}</div>
+              {(() => { const owed = (v.payments || []).filter(p => !p.paid).reduce((s, p) => s + p.amount, 0); return owed > 0 ? <div style={{ fontSize: 11.5, color: "#c9585d", fontWeight: 700, marginTop: 3 }}>{inr(owed)} owed</div> : null; })()}
               <span style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeVendor(v.id); }}>🗑</span>
             </div>
           ))}
@@ -3262,6 +3720,9 @@ function VendorDetail({ vendor, vendorCategories, onBack, onChange }) {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [newPaymentAmount, setNewPaymentAmount] = useState("");
+  const [newPaymentNote, setNewPaymentNote] = useState("");
+  const [newPaymentDue, setNewPaymentDue] = useState("");
 
   if (!vendor) return null;
   const update = (patch) => onChange({ ...vendor, ...patch });
@@ -3269,7 +3730,18 @@ function VendorDetail({ vendor, vendorCategories, onBack, onChange }) {
   const documents = vendor.documents || [];
   const phones = vendor.phones || [];
   const workHistory = vendor.workHistory || [];
+  const payments = vendor.payments || [];
   const photoUrl = (p) => (typeof p === "string" ? p : p.url);
+
+  const addPayment = () => {
+    const amount = Number(newPaymentAmount) || 0;
+    if (amount <= 0) return;
+    update({ payments: [{ id: uid(), amount, note: newPaymentNote.trim(), dueDate: newPaymentDue, paid: false }, ...payments] });
+    setNewPaymentAmount(""); setNewPaymentNote(""); setNewPaymentDue("");
+  };
+  const togglePaymentPaid = (id) => update({ payments: payments.map(p => p.id === id ? { ...p, paid: !p.paid } : p) });
+  const removePayment = (id) => update({ payments: payments.filter(p => p.id !== id) });
+  const owedTotal = payments.filter(p => !p.paid).reduce((s, p) => s + p.amount, 0);
 
   const addPhone = () => update({ phones: [...phones, { id: uid(), name: "", phone: "" }] });
   const updatePhone = (id, patch) => update({ phones: phones.map(p => p.id === id ? { ...p, ...patch } : p) });
@@ -3441,6 +3913,30 @@ function VendorDetail({ vendor, vendorCategories, onBack, onChange }) {
               <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
                 <div><b style={{ color: "#6B1E23" }}>{h.date}:</b> {h.text}</div>
                 <span style={{ color: "#c98b8e", cursor: "pointer", marginLeft: 10 }} onClick={() => removeHistory(h.id)}>🗑</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="beo-card" style={{ padding: 20, marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23" }}>What We Owe Them</div>
+              {owedTotal > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: "#c9585d" }}>{inr(owedTotal)} owed</div>}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: 6, marginBottom: 6 }}>
+              <input className="beo-input" placeholder="Note (e.g. Advance for Nov 20 event)" value={newPaymentNote} onChange={e => setNewPaymentNote(e.target.value)} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+              <input className="beo-input" type="number" placeholder="₹ Amount" value={newPaymentAmount} onChange={e => setNewPaymentAmount(e.target.value)} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+              <input className="beo-input" type="date" value={newPaymentDue} onChange={e => setNewPaymentDue(e.target.value)} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+              <button className="beo-btn beo-btn-primary" onClick={addPayment}>＋ Add Due</button>
+            </div>
+            {payments.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5 }}>No payments logged.</div> : payments.map(p => (
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: p.paid ? "line-through" : "none", color: p.paid ? "#a39a89" : "#211D17" }}>
+                  <input type="checkbox" checked={p.paid} onChange={() => togglePaymentPaid(p.id)} />
+                  {inr(p.amount)}{p.note ? ` — ${p.note}` : ""}{p.dueDate ? ` (due ${p.dueDate})` : ""}
+                </label>
+                <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removePayment(p.id)}>🗑</span>
               </div>
             ))}
           </div>
@@ -4009,6 +4505,17 @@ function CompanySettingsForm({ settings, onChange, onClose }) {
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Phone</label>
           <input className="beo-input" value={s.phone || ""} onChange={e => update({ phone: e.target.value })} style={{ marginTop: 4 }} />
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>GSTIN (for Tax Invoices)</label>
+          <input className="beo-input" value={s.gstin || ""} onChange={e => update({ gstin: e.target.value })} style={{ marginTop: 4 }} placeholder="e.g. 09ABCDE1234F1Z5" />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>UPI ID (for payment links)</label>
+          <input className="beo-input" value={s.upiId || ""} onChange={e => update({ upiId: e.target.value })} style={{ marginTop: 4 }} placeholder="e.g. yourbusiness@okhdfcbank" />
         </div>
       </div>
 
@@ -5059,6 +5566,133 @@ function CalendarView({ budgets, corpQuotes, onOpenBudget, onOpenQuote }) {
             </React.Fragment>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function StaffView({ staffMembers, setStaffMembers, logActivity }) {
+  const [newName, setNewName] = useState("");
+  const [newRole, setNewRole] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+
+  const addStaff = () => {
+    const name = newName.trim();
+    if (!name) return;
+    const s = { id: uid(), name, role: newRole.trim(), phone: newPhone.trim(), notes: "" };
+    setStaffMembers(prev => [s, ...prev]);
+    if (logActivity) logActivity(`Added staff member "${name}"`);
+    setNewName(""); setNewRole(""); setNewPhone("");
+  };
+  const removeStaff = (id) => setStaffMembers(prev => prev.filter(s => s.id !== id));
+  const updateStaff = (id, patch) => setStaffMembers(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>🧑‍💼 Staff Directory</div>
+
+      <div className="beo-card" style={{ padding: 14, marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input className="beo-input" placeholder="Name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addStaff()} style={{ flex: "1 1 160px" }} />
+        <input className="beo-input" placeholder="Role (e.g. Logistics Lead)" value={newRole} onChange={e => setNewRole(e.target.value)} style={{ flex: "1 1 160px" }} />
+        <input className="beo-input" placeholder="Phone" value={newPhone} onChange={e => setNewPhone(e.target.value)} onKeyDown={e => e.key === "Enter" && addStaff()} style={{ flex: "1 1 140px" }} />
+        <button className="beo-btn beo-btn-primary" onClick={addStaff}>＋ Add</button>
+      </div>
+
+      {staffMembers.length === 0 ? (
+        <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>No staff added yet.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+          {staffMembers.map(s => (
+            <div key={s.id} className="beo-card" style={{ padding: 16, position: "relative" }}>
+              <span onClick={() => removeStaff(s.id)} style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }}>🗑</span>
+              <input className="beo-input" value={s.name} onChange={e => updateStaff(s.id, { name: e.target.value })} style={{ fontWeight: 700, fontSize: 14.5, border: "none", padding: "2px 0", marginBottom: 6 }} />
+              <input className="beo-input" placeholder="Role" value={s.role || ""} onChange={e => updateStaff(s.id, { role: e.target.value })} style={{ fontSize: 12.5, padding: "5px 8px", marginBottom: 6 }} />
+              <input className="beo-input" placeholder="Phone" value={s.phone || ""} onChange={e => updateStaff(s.id, { phone: e.target.value })} style={{ fontSize: 12.5, padding: "5px 8px", marginBottom: 6 }} />
+              {s.phone && <a href={waLink(s.phone)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2E7D32", fontWeight: 600, textDecoration: "none" }}>💬 WhatsApp</a>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExpensesView({ businessExpenses, setBusinessExpenses, budgets, logActivity }) {
+  const [newDate, setNewDate] = useState(new Date().toISOString().slice(0, 10));
+  const [newCategory, setNewCategory] = useState("Rent");
+  const [newAmount, setNewAmount] = useState("");
+  const [newNote, setNewNote] = useState("");
+  const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7));
+
+  const addExpense = () => {
+    const amount = Number(newAmount) || 0;
+    if (amount <= 0) return;
+    const e = { id: uid(), date: newDate, category: newCategory, amount, note: newNote.trim() };
+    setBusinessExpenses(prev => [e, ...prev]);
+    if (logActivity) logActivity(`Logged expense: ${newCategory} — ${inr(amount)}`);
+    setNewAmount(""); setNewNote("");
+  };
+  const removeExpense = (id) => setBusinessExpenses(prev => prev.filter(e => e.id !== id));
+
+  const inMonth = businessExpenses.filter(e => e.date && e.date.slice(0, 7) === monthFilter);
+  const monthTotal = inMonth.reduce((s, e) => s + e.amount, 0);
+
+  const convertedThisMonth = budgets.filter(b => b.status === "Converted" && b.date && b.date.slice(0, 7) === monthFilter);
+  const monthRevenue = convertedThisMonth.reduce((s, b) => s + computeBudgetFinancials(b).finalBudget, 0);
+  const netProfit = monthRevenue - monthTotal;
+
+  const byCategory = {};
+  inMonth.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + e.amount; });
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>💸 Expenses & P&L</div>
+
+      <div className="beo-card" style={{ padding: 14, marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input className="beo-input" type="date" value={newDate} onChange={e => setNewDate(e.target.value)} style={{ width: 150 }} />
+        <select className="beo-input" value={newCategory} onChange={e => setNewCategory(e.target.value)} style={{ width: "auto" }}>
+          <option>Rent</option><option>Salaries</option><option>Fuel</option><option>Utilities</option><option>Marketing</option><option>Office Supplies</option><option>Other</option>
+        </select>
+        <input className="beo-input" type="number" placeholder="Amount ₹" value={newAmount} onChange={e => setNewAmount(e.target.value)} style={{ width: 120 }} />
+        <input className="beo-input" placeholder="Note (optional)" value={newNote} onChange={e => setNewNote(e.target.value)} onKeyDown={e => e.key === "Enter" && addExpense()} style={{ flex: "1 1 160px" }} />
+        <button className="beo-btn beo-btn-primary" onClick={addExpense}>＋ Add</button>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <label style={{ fontSize: 12.5, color: "#8a8071" }}>Viewing month:</label>
+        <input className="beo-input" type="month" value={monthFilter} onChange={e => setMonthFilter(e.target.value)} style={{ width: 160 }} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 20 }}>
+        <StatCard label="Revenue (Converted)" value={inr(monthRevenue)} sub={`${convertedThisMonth.length} events this month`} color="#2E7D32" />
+        <StatCard label="Business Expenses" value={inr(monthTotal)} sub={`${inMonth.length} entries`} color="#c9585d" />
+        <StatCard label="Net Profit" value={inr(netProfit)} sub="Revenue minus overhead" color={netProfit >= 0 ? "#6B1E23" : "#c9585d"} />
+      </div>
+
+      {Object.keys(byCategory).length > 0 && (
+        <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>By Category</div>
+          {Object.entries(byCategory).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
+            <div key={cat} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0" }}>
+              <span>{cat}</span><span style={{ fontWeight: 700 }}>{inr(amt)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="beo-card" style={{ padding: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>All Entries This Month</div>
+        {inMonth.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 13 }}>No expenses logged for this month.</div>
+        ) : inMonth.map(e => (
+          <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 13 }}>
+            <div><b>{e.date}</b> · {e.category}{e.note ? ` — ${e.note}` : ""}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontWeight: 700 }}>{inr(e.amount)}</span>
+              <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeExpense(e.id)}>🗑</span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
