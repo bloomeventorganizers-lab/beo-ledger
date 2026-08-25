@@ -817,11 +817,12 @@ function App() {
   const menuId = new URLSearchParams(window.location.search).get("menu");
   const testimonialId = new URLSearchParams(window.location.search).get("testimonial");
   const contractId = new URLSearchParams(window.location.search).get("contract");
+  const rsvpId = new URLSearchParams(window.location.search).get("rsvp");
   const [user, setUser] = useState(undefined);
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
-    if (shareId || menuId || testimonialId || contractId) return;
+    if (shareId || menuId || testimonialId || contractId || rsvpId) return;
     const unsub = auth.onAuthStateChanged(u => setUser(u || null));
     return unsub;
   }, []);
@@ -830,6 +831,7 @@ function App() {
   if (menuId) return <PublicMenuView menuId={menuId} />;
   if (testimonialId) return <PublicTestimonialView requestId={testimonialId} />;
   if (contractId) return <PublicContractView contractId={contractId} />;
+  if (rsvpId) return <PublicRsvpView rsvpId={rsvpId} />;
   if (user === undefined) return <div style={{ padding: 40, color: "#6b1e23" }}>Checking sign-in…</div>;
   if (user === null) return <LoginScreen onError={setAuthError} error={authError} />;
   return <MainApp user={user} />;
@@ -1136,6 +1138,68 @@ function PublicContractView({ contractId }) {
   );
 }
 
+function PublicRsvpView({ rsvpId }) {
+  const [data, setData] = useState(undefined);
+  const [name, setName] = useState("");
+  const [attending, setAttending] = useState("yes");
+  const [guestCount, setGuestCount] = useState("1");
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    db.collection("publicRsvpRequests").doc(rsvpId).get()
+      .then(snap => setData(snap.exists ? snap.data() : null))
+      .catch(() => setData(null));
+  }, [rsvpId]);
+
+  if (data === undefined) return <div style={{ padding: 40, textAlign: "center" }}>Loading…</div>;
+  if (data === null) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This link is invalid or no longer available.</div>;
+
+  if (submitted) {
+    return (
+      <div style={{ maxWidth: 500, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+        <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", marginBottom: 10 }}>Thank you!</div>
+        <div style={{ fontSize: 14 }}>Your RSVP has been recorded.</div>
+      </div>
+    );
+  }
+
+  const handleSubmit = async () => {
+    if (!name.trim()) { setErrorMsg("Please enter your name."); return; }
+    setSubmitting(true); setErrorMsg("");
+    try {
+      await db.collection("rsvpSubmissions").add({ rsvpId, name: name.trim(), attending, guestCount: Number(guestCount) || 1, submittedAt: Date.now() });
+      setSubmitted(true);
+    } catch (e) { setErrorMsg("Could not submit — please check your connection and try again."); }
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 500, margin: "0 auto", padding: "40px 20px" }}>
+      <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 4 }}>You're Invited</div>
+      {data.budgetName && <div style={{ fontSize: 13, color: "#8a8071", textAlign: "center", marginBottom: 24 }}>{data.budgetName}{data.date ? ` — ${data.date}` : ""}</div>}
+      <div className="beo-card" style={{ padding: 20 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Your Name</label>
+        <input className="beo-input" value={name} onChange={e => setName(e.target.value)} style={{ marginTop: 4, marginBottom: 14 }} />
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Will you attend?</label>
+        <div style={{ display: "flex", gap: 8, marginTop: 6, marginBottom: 14 }}>
+          <button onClick={() => setAttending("yes")} className="beo-btn" style={{ flex: 1, padding: "10px", background: attending === "yes" ? "#2E7D32" : "#F1EADA", color: attending === "yes" ? "#fff" : "#211D17" }}>Yes, I'll be there</button>
+          <button onClick={() => setAttending("no")} className="beo-btn" style={{ flex: 1, padding: "10px", background: attending === "no" ? "#c9585d" : "#F1EADA", color: attending === "no" ? "#fff" : "#211D17" }}>Can't make it</button>
+        </div>
+        {attending === "yes" && (
+          <React.Fragment>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Total guests (including you)</label>
+            <input className="beo-input" type="number" min="1" value={guestCount} onChange={e => setGuestCount(e.target.value)} style={{ marginTop: 4, marginBottom: 14, width: 100 }} />
+          </React.Fragment>
+        )}
+        {errorMsg && <div style={{ color: "#c9585d", fontSize: 12.5, marginBottom: 10 }}>{errorMsg}</div>}
+        <button className="beo-btn beo-btn-primary" disabled={submitting} onClick={handleSubmit} style={{ width: "100%", padding: "12px" }}>{submitting ? "Submitting…" : "Submit RSVP"}</button>
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ onError, error }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1325,6 +1389,10 @@ function MainApp({ user }) {
     }
   }, [isAdmin, dueFollowUps.length, todayStr]);
 
+  const lastBackupDate = localStorage.getItem("beo_last_backup_date");
+  const daysSinceBackup = lastBackupDate ? Math.floor((new Date(todayStr) - new Date(lastBackupDate)) / 86400000) : null;
+  const backupOverdue = isAdmin && (daysSinceBackup === null || daysSinceBackup >= 30);
+
   const logActivity = (what) => {
     const entry = { id: uid(), who: getDeviceUser(), what, when: Date.now() };
     setActivityLog(prev => [entry, ...(prev || [])].slice(0, 100));
@@ -1376,6 +1444,7 @@ function MainApp({ user }) {
     a.href = url; a.download = `beo_backup_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    localStorage.setItem("beo_last_backup_date", new Date().toISOString().slice(0, 10));
   };
 
   const handleRestoreFile = (e) => {
@@ -1419,6 +1488,7 @@ function MainApp({ user }) {
           >
             ☰
           </button>
+          <SidebarIcon expanded={sidebarExpanded} label="Calendar" title="Calendar" active={tab === "calendar"} onClick={() => setTab("calendar")}>📅</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Quick Quote" title="Quick Quote" active={tab === "quickquote"} onClick={() => setTab("quickquote")}>⚡</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Vendors & Artists" title="Vendors & Artists" active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>👥</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Idea Box" title="Idea Box" active={tab === "ideas"} onClick={() => setTab("ideas")}>💡</SidebarIcon>
@@ -1465,11 +1535,15 @@ function MainApp({ user }) {
           <div style={{ fontSize: 11.5, color: syncStatus === "error" ? "#c9585d" : "#8a8071", marginTop: 2 }}>
             {syncStatus === "syncing" ? "Syncing…" : syncStatus === "error" ? "Sync error — check connection" : `Synced · ${user.email}`}
           </div>
+          {backupOverdue && (
+            <div onClick={handleBackup} style={{ fontSize: 11, color: "#A85C3D", marginTop: 3, cursor: "pointer", fontWeight: 600 }}>
+              ⚠ {daysSinceBackup === null ? "No backup on record" : `${daysSinceBackup} days since last backup`} — click to back up now
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, justifyContent: "flex-end", minWidth: 0 }}>
           <nav className="beo-nav-scroll" style={{ display: "flex", gap: 4, alignItems: "center", overflowX: "auto", maxWidth: "100%" }}>
             {isAdmin && <TabBtn active={tab === "dashboard"} onClick={() => setTab("dashboard")}>Dashboard</TabBtn>}
-            {isAdmin && <TabBtn active={tab === "calendar"} onClick={() => setTab("calendar")}>📅 Calendar</TabBtn>}
             {isAdmin && <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>}
             {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
             <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
@@ -2135,6 +2209,17 @@ function DashboardView({ budgets, corpQuotes, dueFollowUps, onOpen, activityLog 
     ...(corpQuotes || []).filter(q => q.date === todayKey).map(q => ({ type: "Corporate Quote", label: q.name, sub: q.clientName, id: q.id }))
   ];
 
+  const yearStats = {};
+  budgets.forEach(b => {
+    if (b.status !== "Converted" || !b.date) return;
+    const y = new Date(b.date).getFullYear();
+    if (isNaN(y)) return;
+    if (!yearStats[y]) yearStats[y] = { count: 0, revenue: 0 };
+    yearStats[y].count += 1;
+    yearStats[y].revenue += computeBudgetFinancials(b).finalBudget;
+  });
+  const yearComparison = Object.entries(yearStats).sort((a, b) => b[0] - a[0]).slice(0, 4);
+
   const statusChartData = {
     labels: ["Lead", "Connected", "Converted"],
     values: [leads.length, connected.length, converted.length],
@@ -2213,6 +2298,16 @@ function DashboardView({ budgets, corpQuotes, dueFollowUps, onOpen, activityLog 
             </div>
           ))}
         </div>
+        {yearComparison.length > 1 && (
+          <div className="beo-card" style={{ padding: 18 }}>
+            <div style={{ fontSize: 11.5, color: "#8a8071", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>Year-over-Year</div>
+            {yearComparison.map(([year, s]) => (
+              <div key={year} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                <span>{year} ({s.count} events)</span><span style={{ fontWeight: 700, color: "#6B1E23" }}>{inr(s.revenue)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 14, marginBottom: 20 }}>
@@ -2294,6 +2389,9 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
   const [checklistDraft, setChecklistDraft] = useState("");
   const [testimonials, setTestimonials] = useState([]);
   const [contractAcceptances, setContractAcceptances] = useState([]);
+  const [rsvps, setRsvps] = useState([]);
+  const [milestoneDraft, setMilestoneDraft] = useState({ task: "", dueDate: "" });
+  const [actualCostDraft, setActualCostDraft] = useState({ category: "", amount: "" });
   const migratedRef = useRef(false);
 
   useEffect(() => {
@@ -2316,6 +2414,16 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
     return unsub;
   }, [budget && budget.contractShareId]);
 
+  useEffect(() => {
+    if (!budget || !budget.rsvpShareId) return;
+    const unsub = db.collection("rsvpSubmissions").where("rsvpId", "==", budget.rsvpShareId).onSnapshot(snap => {
+      const list = [];
+      snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+      setRsvps(list);
+    });
+    return unsub;
+  }, [budget && budget.rsvpShareId]);
+
   if (!budget) return null;
   const update = (patch) => onChange({ ...budget, ...patch });
   const runSheet = budget.runSheet || [];
@@ -2333,6 +2441,39 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
   };
   const toggleChecklistItem = (id) => update({ packingChecklist: packingChecklist.map(c => c.id === id ? { ...c, checked: !c.checked } : c) });
   const removeChecklistItem = (id) => update({ packingChecklist: packingChecklist.filter(c => c.id !== id) });
+
+  const CHECKLIST_TEMPLATES = {
+    Wedding: ["Confirm DJ/music", "Lock final menu", "Confirm final headcount", "Confirm decor theme", "Book transport for family", "Confirm photographer/videographer", "Genset with fuel", "Confirm hotel room blocks"],
+    Corporate: ["Confirm AV/sound setup", "Finalize attendee list", "Confirm branding/standees", "Confirm catering headcount", "Confirm parking arrangements", "Test all equipment on-site"],
+    "Small Event": ["Confirm venue", "Confirm catering count", "Confirm decor", "Confirm music/sound"]
+  };
+  const applyChecklistTemplate = (templateName) => {
+    const items = CHECKLIST_TEMPLATES[templateName] || [];
+    const existing = new Set(packingChecklist.map(c => c.text.toLowerCase()));
+    const newItems = items.filter(t => !existing.has(t.toLowerCase())).map(text => ({ id: uid(), text, checked: false }));
+    if (newItems.length === 0) return;
+    update({ packingChecklist: [...packingChecklist, ...newItems] });
+  };
+
+  const milestones = budget.milestones || [];
+  const addMilestone = () => {
+    if (!milestoneDraft.task.trim()) return;
+    update({ milestones: [...milestones, { id: uid(), ...milestoneDraft, done: false }].sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || "")) });
+    setMilestoneDraft({ task: "", dueDate: "" });
+  };
+  const toggleMilestone = (id) => update({ milestones: milestones.map(m => m.id === id ? { ...m, done: !m.done } : m) });
+  const removeMilestone = (id) => update({ milestones: milestones.filter(m => m.id !== id) });
+
+  const actualCosts = budget.actualCosts || [];
+  const addActualCost = () => {
+    const amount = Number(actualCostDraft.amount) || 0;
+    if (!actualCostDraft.category.trim() || amount <= 0) return;
+    update({ actualCosts: [...actualCosts, { id: uid(), category: actualCostDraft.category.trim(), amount }] });
+    setActualCostDraft({ category: "", amount: "" });
+  };
+  const removeActualCost = (id) => update({ actualCosts: actualCosts.filter(a => a.id !== id) });
+  const actualTotal = actualCosts.reduce((s, a) => s + a.amount, 0);
+
   const days = budget.days || [];
 
   // One-time migration: old flat `lines` budgets become a single Day 1 / Event with those lines
@@ -2501,6 +2642,19 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
       themePrimary: activeTheme.primary,
       themeAccent: activeTheme.accent
     };
+  };
+
+  const getOrCreateRsvpLink = async () => {
+    const id = budget.rsvpShareId || uid();
+    try {
+      await db.collection("publicRsvpRequests").doc(id).set({
+        budgetName: budget.name || "", date: budget.date || "", updatedAt: Date.now()
+      });
+      if (!budget.rsvpShareId) update({ rsvpShareId: id });
+      const url = `${window.location.origin}${window.location.pathname}?rsvp=${id}`;
+      navigator.clipboard.writeText(url);
+      alert("RSVP link copied:\n\n" + url);
+    } catch (e) { alert("Could not create link: " + e.message); }
   };
 
   const getOrCreateShareLink = async () => {
@@ -2783,6 +2937,40 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
       </div>
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontWeight: 700 }}>Guest RSVP & Check-In</div>
+          <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={getOrCreateRsvpLink}>🔗 Get RSVP Link</button>
+        </div>
+        {budget.rsvpShareId && (
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginBottom: 12, flexWrap: "wrap" }}>
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`${window.location.origin}${window.location.pathname}?rsvp=${budget.rsvpShareId}`)}`}
+              alt="RSVP QR Code"
+              style={{ width: 140, height: 140, borderRadius: 6, border: "1px solid #E4DCC8" }}
+            />
+            <div style={{ fontSize: 12, color: "#8a8071", maxWidth: 300 }}>
+              Print this QR code on invites or display it at check-in — guests scan it to RSVP or confirm arrival directly, no app needed.
+            </div>
+          </div>
+        )}
+        {rsvps.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 12.5 }}>No RSVPs yet. Generate a link and share it with your guest list.</div>
+        ) : (
+          <React.Fragment>
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>
+              {rsvps.filter(r => r.attending === "yes").length} attending · {rsvps.filter(r => r.attending === "no").length} not attending · {rsvps.reduce((s, r) => s + (r.attending === "yes" ? (Number(r.guestCount) || 1) : 0), 0)} total guests
+            </div>
+            {rsvps.map(r => (
+              <div key={r.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+                <div>{r.name} {r.attending === "yes" ? `(+${(Number(r.guestCount) || 1) - 1})` : ""}</div>
+                <div style={{ color: r.attending === "yes" ? "#2E7D32" : "#c9585d", fontWeight: 700 }}>{r.attending === "yes" ? "Attending" : "Not attending"}</div>
+              </div>
+            ))}
+          </React.Fragment>
+        )}
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Event Day Run Sheet</div>
         <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 140px 24px", gap: 6, marginBottom: 8 }}>
           <input className="beo-input" placeholder="Time" value={runSheetDraft.time} onChange={e => setRunSheetDraft(p => ({ ...p, time: e.target.value }))} style={{ fontSize: 12.5, padding: "5px 6px" }} />
@@ -2802,6 +2990,11 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Equipment / Packing Checklist</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+          {Object.keys(CHECKLIST_TEMPLATES).map(t => (
+            <button key={t} className="beo-btn beo-btn-ghost" style={{ fontSize: 11 }} onClick={() => applyChecklistTemplate(t)}>+ {t} template</button>
+          ))}
+        </div>
         <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
           <input className="beo-input" placeholder="e.g. 2x DJ speakers, Genset with fuel" value={checklistDraft} onChange={e => setChecklistDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && addChecklistItem()} />
           <button className="beo-btn beo-btn-primary" onClick={addChecklistItem}>＋</button>
@@ -2814,6 +3007,51 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
               <input type="checkbox" checked={c.checked} onChange={() => toggleChecklistItem(c.id)} /> {c.text}
             </label>
             <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeChecklistItem(c.id)}>🗑</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Pre-Event Milestone Timeline</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 24px", gap: 6, marginBottom: 8 }}>
+          <input className="beo-input" placeholder="Task (e.g. Final headcount due)" value={milestoneDraft.task} onChange={e => setMilestoneDraft(p => ({ ...p, task: e.target.value }))} onKeyDown={e => e.key === "Enter" && addMilestone()} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <input className="beo-input" type="date" value={milestoneDraft.dueDate} onChange={e => setMilestoneDraft(p => ({ ...p, dueDate: e.target.value }))} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <button className="beo-btn beo-btn-primary" style={{ padding: "5px 8px" }} onClick={addMilestone}>＋</button>
+        </div>
+        {milestones.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 12.5 }}>No milestones yet.</div>
+        ) : milestones.map(m => {
+          const overdue = !m.done && m.dueDate && m.dueDate < new Date().toISOString().slice(0, 10);
+          return (
+            <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: m.done ? "line-through" : "none", color: m.done ? "#a39a89" : overdue ? "#c9585d" : "#211D17" }}>
+                <input type="checkbox" checked={m.done} onChange={() => toggleMilestone(m.id)} /> {m.task}{m.dueDate ? ` (${m.dueDate}${overdue ? " — overdue" : ""})` : ""}
+              </label>
+              <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeMilestone(m.id)}>🗑</span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontWeight: 700 }}>Budget vs. Actual</div>
+          {actualCosts.length > 0 && <div style={{ fontSize: 12.5, fontWeight: 700, color: actualTotal > grandTotal ? "#c9585d" : "#2E7D32" }}>Actual: {inr(actualTotal)} vs Quoted: {inr(grandTotal)}</div>}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 24px", gap: 6, marginBottom: 8 }}>
+          <input className="beo-input" placeholder="Category (e.g. Catering)" value={actualCostDraft.category} onChange={e => setActualCostDraft(p => ({ ...p, category: e.target.value }))} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <input className="beo-input" type="number" placeholder="₹ Actual" value={actualCostDraft.amount} onChange={e => setActualCostDraft(p => ({ ...p, amount: e.target.value }))} onKeyDown={e => e.key === "Enter" && addActualCost()} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <button className="beo-btn beo-btn-primary" style={{ padding: "5px 8px" }} onClick={addActualCost}>＋</button>
+        </div>
+        {actualCosts.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 12.5 }}>No actual costs logged yet — add these after the event to compare against your quote.</div>
+        ) : actualCosts.map(a => (
+          <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+            <div>{a.category}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontWeight: 700 }}>{inr(a.amount)}</span>
+              <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeActualCost(a.id)}>🗑</span>
+            </div>
           </div>
         ))}
       </div>
@@ -3699,8 +3937,10 @@ function VendorsView({ vendors, setVendors, vendorCategories, setVendorCategorie
               )}
               <div style={{ fontSize: 11, color: "#B8934A", fontWeight: 700, textTransform: "uppercase" }}>{v.category}</div>
               <div style={{ fontWeight: 700, fontSize: 14.5 }}>{v.name}</div>
+              {v.rating > 0 && <div style={{ fontSize: 11, color: "#B8934A", marginTop: 2 }}>{"★".repeat(v.rating)}{"☆".repeat(5 - v.rating)}</div>}
               {v.description && <div style={{ fontSize: 12, color: "#5a5348", marginTop: 3 }}>{v.description}</div>}
               <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>{v.officeLocation || "No location added"}</div>
+              {v.insuranceExpiry && v.insuranceExpiry < new Date().toISOString().slice(0, 10) && <div style={{ fontSize: 11, color: "#c9585d", fontWeight: 700, marginTop: 3 }}>⚠ Insurance expired</div>}
               {(() => { const owed = (v.payments || []).filter(p => !p.paid).reduce((s, p) => s + p.amount, 0); return owed > 0 ? <div style={{ fontSize: 11.5, color: "#c9585d", fontWeight: 700, marginTop: 3 }}>{inr(owed)} owed</div> : null; })()}
               <span style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeVendor(v.id); }}>🗑</span>
             </div>
@@ -3823,7 +4063,25 @@ function VendorDetail({ vendor, vendorCategories, onBack, onChange }) {
             <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Where we met</label>
             <input className="beo-input" value={vendor.metNote || ""} onChange={e => update({ metNote: e.target.value })} style={{ marginTop: 4, marginBottom: 12 }} placeholder="e.g. Referred by Elegant Planner, met at a wedding in March" />
             <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Costing</label>
-            <textarea className="beo-input" rows={3} value={vendor.costing || ""} onChange={e => update({ costing: e.target.value })} style={{ marginTop: 4, resize: "vertical", fontFamily: "inherit" }} placeholder="e.g. ₹25,000 for a 2-hour anchoring slot, ₹40,000 for full-day" />
+            <textarea className="beo-input" rows={3} value={vendor.costing || ""} onChange={e => update({ costing: e.target.value })} style={{ marginTop: 4, marginBottom: 12, resize: "vertical", fontFamily: "inherit" }} placeholder="e.g. ₹25,000 for a 2-hour anchoring slot, ₹40,000 for full-day" />
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Our Rating</label>
+            <div style={{ display: "flex", gap: 4, marginTop: 6, marginBottom: 10 }}>
+              {[1, 2, 3, 4, 5].map(n => (
+                <span key={n} onClick={() => update({ rating: n })} style={{ fontSize: 22, cursor: "pointer", color: n <= (vendor.rating || 0) ? "#B8934A" : "#E4DCC8" }}>★</span>
+              ))}
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14 }}>
+              <input type="checkbox" checked={!!vendor.wouldRebook} onChange={e => update({ wouldRebook: e.target.checked })} /> Would rebook
+            </label>
+
+            <div style={{ paddingTop: 12, borderTop: "1px dashed #E4DCC8" }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Insurance / Compliance Expiry</label>
+              <input className="beo-input" type="date" value={vendor.insuranceExpiry || ""} onChange={e => update({ insuranceExpiry: e.target.value })} style={{ marginTop: 4 }} />
+              {vendor.insuranceExpiry && vendor.insuranceExpiry < new Date().toISOString().slice(0, 10) && (
+                <div style={{ fontSize: 11.5, color: "#c9585d", fontWeight: 700, marginTop: 4 }}>⚠ Insurance has expired</div>
+              )}
+            </div>
           </div>
 
           <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
@@ -5575,17 +5833,28 @@ function StaffView({ staffMembers, setStaffMembers, logActivity }) {
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState("");
   const [newPhone, setNewPhone] = useState("");
+  const [earningDraft, setEarningDraft] = useState({});
 
   const addStaff = () => {
     const name = newName.trim();
     if (!name) return;
-    const s = { id: uid(), name, role: newRole.trim(), phone: newPhone.trim(), notes: "" };
+    const s = { id: uid(), name, role: newRole.trim(), phone: newPhone.trim(), notes: "", earnings: [] };
     setStaffMembers(prev => [s, ...prev]);
     if (logActivity) logActivity(`Added staff member "${name}"`);
     setNewName(""); setNewRole(""); setNewPhone("");
   };
   const removeStaff = (id) => setStaffMembers(prev => prev.filter(s => s.id !== id));
   const updateStaff = (id, patch) => setStaffMembers(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+  const addEarning = (staffId) => {
+    const draft = earningDraft[staffId] || {};
+    const amount = Number(draft.amount) || 0;
+    if (amount <= 0) return;
+    setStaffMembers(prev => prev.map(s => s.id === staffId ? { ...s, earnings: [...(s.earnings || []), { id: uid(), amount, note: (draft.note || "").trim(), date: new Date().toISOString().slice(0, 10) }] } : s));
+    setEarningDraft(prev => ({ ...prev, [staffId]: { amount: "", note: "" } }));
+  };
+  const removeEarning = (staffId, earningId) => {
+    setStaffMembers(prev => prev.map(s => s.id === staffId ? { ...s, earnings: (s.earnings || []).filter(e => e.id !== earningId) } : s));
+  };
 
   return (
     <div>
@@ -5601,16 +5870,42 @@ function StaffView({ staffMembers, setStaffMembers, logActivity }) {
       {staffMembers.length === 0 ? (
         <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>No staff added yet.</div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
-          {staffMembers.map(s => (
-            <div key={s.id} className="beo-card" style={{ padding: 16, position: "relative" }}>
-              <span onClick={() => removeStaff(s.id)} style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }}>🗑</span>
-              <input className="beo-input" value={s.name} onChange={e => updateStaff(s.id, { name: e.target.value })} style={{ fontWeight: 700, fontSize: 14.5, border: "none", padding: "2px 0", marginBottom: 6 }} />
-              <input className="beo-input" placeholder="Role" value={s.role || ""} onChange={e => updateStaff(s.id, { role: e.target.value })} style={{ fontSize: 12.5, padding: "5px 8px", marginBottom: 6 }} />
-              <input className="beo-input" placeholder="Phone" value={s.phone || ""} onChange={e => updateStaff(s.id, { phone: e.target.value })} style={{ fontSize: 12.5, padding: "5px 8px", marginBottom: 6 }} />
-              {s.phone && <a href={waLink(s.phone)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2E7D32", fontWeight: 600, textDecoration: "none" }}>💬 WhatsApp</a>}
-            </div>
-          ))}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+          {staffMembers.map(s => {
+            const earnings = s.earnings || [];
+            const totalEarned = earnings.reduce((sum, e) => sum + e.amount, 0);
+            const draft = earningDraft[s.id] || { amount: "", note: "" };
+            return (
+              <div key={s.id} className="beo-card" style={{ padding: 16, position: "relative" }}>
+                <span onClick={() => removeStaff(s.id)} style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }}>🗑</span>
+                <input className="beo-input" value={s.name} onChange={e => updateStaff(s.id, { name: e.target.value })} style={{ fontWeight: 700, fontSize: 14.5, border: "none", padding: "2px 0", marginBottom: 6 }} />
+                <input className="beo-input" placeholder="Role" value={s.role || ""} onChange={e => updateStaff(s.id, { role: e.target.value })} style={{ fontSize: 12.5, padding: "5px 8px", marginBottom: 6 }} />
+                <input className="beo-input" placeholder="Phone" value={s.phone || ""} onChange={e => updateStaff(s.id, { phone: e.target.value })} style={{ fontSize: 12.5, padding: "5px 8px", marginBottom: 6 }} />
+                {s.phone && <a href={waLink(s.phone)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2E7D32", fontWeight: 600, textDecoration: "none" }}>💬 WhatsApp</a>}
+
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: "#8a8071", textTransform: "uppercase" }}>Earnings</span>
+                    {totalEarned > 0 && <span style={{ fontSize: 12.5, fontWeight: 700, color: "#2E7D32" }}>{inr(totalEarned)}</span>}
+                  </div>
+                  {earnings.length > 0 && earnings.map(e => (
+                    <div key={e.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, padding: "3px 0" }}>
+                      <span>{e.date}{e.note ? ` — ${e.note}` : ""}</span>
+                      <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {inr(e.amount)}
+                        <span onClick={() => removeEarning(s.id, e.id)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span>
+                      </span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                    <input className="beo-input" type="number" placeholder="₹" value={draft.amount} onChange={e => setEarningDraft(prev => ({ ...prev, [s.id]: { ...draft, amount: e.target.value } }))} style={{ width: 70, fontSize: 11.5, padding: "4px 6px" }} />
+                    <input className="beo-input" placeholder="Note" value={draft.note} onChange={e => setEarningDraft(prev => ({ ...prev, [s.id]: { ...draft, note: e.target.value } }))} onKeyDown={e => e.key === "Enter" && addEarning(s.id)} style={{ flex: 1, fontSize: 11.5, padding: "4px 6px" }} />
+                    <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => addEarning(s.id)}>＋</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -5644,6 +5939,21 @@ function ExpensesView({ businessExpenses, setBusinessExpenses, budgets, logActiv
   const byCategory = {};
   inMonth.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + e.amount; });
 
+  const prevMonthKey = (() => {
+    const [y, m] = monthFilter.split("-").map(Number);
+    const d = new Date(y, m - 2, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  })();
+  const prevMonthExpenses = businessExpenses.filter(e => e.date && e.date.slice(0, 7) === prevMonthKey);
+  const duplicateLastMonth = () => {
+    if (prevMonthExpenses.length === 0) { alert("No expenses found for the previous month to duplicate."); return; }
+    const [y, m] = monthFilter.split("-").map(Number);
+    const newDateStr = `${monthFilter}-01`;
+    const copies = prevMonthExpenses.map(e => ({ id: uid(), date: newDateStr, category: e.category, amount: e.amount, note: e.note }));
+    setBusinessExpenses(prev => [...copies, ...prev]);
+    if (logActivity) logActivity(`Duplicated ${copies.length} recurring expenses from ${prevMonthKey}`);
+  };
+
   return (
     <div>
       <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>💸 Expenses & P&L</div>
@@ -5658,9 +5968,12 @@ function ExpensesView({ businessExpenses, setBusinessExpenses, budgets, logActiv
         <button className="beo-btn beo-btn-primary" onClick={addExpense}>＋ Add</button>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <label style={{ fontSize: 12.5, color: "#8a8071" }}>Viewing month:</label>
         <input className="beo-input" type="month" value={monthFilter} onChange={e => setMonthFilter(e.target.value)} style={{ width: 160 }} />
+        {prevMonthExpenses.length > 0 && (
+          <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={duplicateLastMonth}>📋 Duplicate {prevMonthExpenses.length} recurring expense{prevMonthExpenses.length === 1 ? "" : "s"} from last month</button>
+        )}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 20 }}>
