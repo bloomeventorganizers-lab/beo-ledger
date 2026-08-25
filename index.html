@@ -1072,6 +1072,26 @@ function MainApp({ user }) {
       .catch(e => { console.error(e); setSyncStatus("error"); });
   }, [cities, corpQuotes, activityLog, vendors, vendorCategories, ideas, decorFunctions, projects, customerLeads]);
 
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const dueFollowUps = (budgets || []).filter(b => b.followUpDate && b.followUpDate <= todayStr && b.status !== "Converted");
+
+  useEffect(() => {
+    if (!isAdmin || dueFollowUps.length === 0) return;
+    if (typeof Notification === "undefined") return;
+    const key = `beo_notif_fired_${todayStr}`;
+    if (localStorage.getItem(key)) return;
+    const fire = () => {
+      dueFollowUps.forEach(b => {
+        new Notification("Follow-up due", { body: `${b.clientName || b.name} — follow up today`, tag: b.id });
+      });
+      localStorage.setItem(key, "1");
+    };
+    if (Notification.permission === "granted") fire();
+    else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then(perm => { if (perm === "granted") fire(); });
+    }
+  }, [isAdmin, dueFollowUps.length, todayStr]);
+
   const logActivity = (what) => {
     const entry = { id: uid(), who: getDeviceUser(), what, when: Date.now() };
     setActivityLog(prev => [entry, ...(prev || [])].slice(0, 100));
@@ -1112,6 +1132,7 @@ function MainApp({ user }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [activityLogOpen, setActivityLogOpen] = useState(false);
+  const [notifPanelOpen, setNotifPanelOpen] = useState(false);
   const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
 
   const handleBackup = () => {
@@ -1213,11 +1234,38 @@ function MainApp({ user }) {
         <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, justifyContent: "flex-end", minWidth: 0 }}>
           <nav className="beo-nav-scroll" style={{ display: "flex", gap: 4, alignItems: "center", overflowX: "auto", maxWidth: "100%" }}>
             {isAdmin && <TabBtn active={tab === "dashboard"} onClick={() => setTab("dashboard")}>Dashboard</TabBtn>}
+            {isAdmin && <TabBtn active={tab === "calendar"} onClick={() => setTab("calendar")}>📅 Calendar</TabBtn>}
             {isAdmin && <TabBtn active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory</TabBtn>}
             {isAdmin && <TabBtn active={tab === "budgets" || tab === "builder"} onClick={() => setTab("budgets")}>Client Budgets</TabBtn>}
             <TabBtn active={tab === "hotels" || tab === "hotelDetail"} onClick={() => setTab("hotels")}>Hotels</TabBtn>
             <TabBtn active={tab === "quotes" || tab === "quoteBuilder"} onClick={() => setTab("quotes")}>Corporate Quotes</TabBtn>
           </nav>
+          {isAdmin && (
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <button onClick={() => setNotifPanelOpen(!notifPanelOpen)} title="Follow-ups due" style={{ position: "relative", background: "transparent", border: "none", cursor: "pointer", fontSize: 20, padding: "6px 8px" }}>
+                🔔
+                {dueFollowUps.length > 0 && (
+                  <span style={{ position: "absolute", top: 2, right: 2, background: "#c9585d", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: "50%", width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{dueFollowUps.length}</span>
+                )}
+              </button>
+              {notifPanelOpen && (
+                <React.Fragment>
+                  <div onClick={() => setNotifPanelOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 199 }}></div>
+                  <div style={{ position: "absolute", top: "110%", right: 0, background: "#fff", border: "1px solid #EDE6D6", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 200, minWidth: 260, maxHeight: 320, overflowY: "auto" }}>
+                    <div style={{ padding: "10px 14px", fontWeight: 700, fontSize: 12.5, borderBottom: "1px solid #F1EADA" }}>Follow-ups due ({dueFollowUps.length})</div>
+                    {dueFollowUps.length === 0 ? (
+                      <div style={{ padding: "14px", fontSize: 12.5, color: "#a39a89" }}>Nothing due today.</div>
+                    ) : dueFollowUps.map(b => (
+                      <div key={b.id} onClick={() => { openBudget(b.id); setNotifPanelOpen(false); }} style={{ padding: "10px 14px", cursor: "pointer", fontSize: 12.5, borderBottom: "1px solid #F1EADA" }}>
+                        <div style={{ fontWeight: 600 }}>{b.clientName || b.name}</div>
+                        <div style={{ color: "#8a8071", fontSize: 11 }}>Follow-up was due {b.followUpDate}</div>
+                      </div>
+                    ))}
+                  </div>
+                </React.Fragment>
+              )}
+            </div>
+          )}
           {!isAdmin && (
             <button className="beo-btn beo-btn-ghost" onClick={() => auth.signOut()} style={{ flexShrink: 0 }}>Sign out</button>
           )}
@@ -1302,6 +1350,7 @@ function MainApp({ user }) {
       )}
       <div style={{ padding: 20, maxWidth: "none" }}>
         {isAdmin && tab === "dashboard" && <DashboardView budgets={budgets} onOpen={openBudget} activityLog={activityLog} />}
+        {isAdmin && tab === "calendar" && <CalendarView budgets={budgets} corpQuotes={corpQuotes} onOpenBudget={openBudget} onOpenQuote={openQuote} />}
         {isAdmin && tab === "quickquote" && (
           <QuickQuoteView
             categories={categories}
@@ -1821,6 +1870,13 @@ function DashboardView({ budgets, onOpen, activityLog }) {
   });
   const busiestMonths = Object.entries(monthCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
+  const referralCounts = {};
+  budgets.forEach(b => {
+    if (!b.referralSource) return;
+    referralCounts[b.referralSource] = (referralCounts[b.referralSource] || 0) + 1;
+  });
+  const topReferrals = Object.entries(referralCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
   const statusChartData = {
     labels: ["Lead", "Connected", "Converted"],
     values: [leads.length, connected.length, converted.length],
@@ -1867,6 +1923,14 @@ function DashboardView({ budgets, onOpen, activityLog }) {
           {busiestMonths.length === 0 ? <div style={{ color: "#a39a89", fontSize: 13 }}>Not enough data yet.</div> : busiestMonths.map(([month, count]) => (
             <div key={month} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
               <span>{month}</span><span style={{ fontWeight: 700, color: "#6B1E23" }}>{count} event{count === 1 ? "" : "s"}</span>
+            </div>
+          ))}
+        </div>
+        <div className="beo-card" style={{ padding: 18 }}>
+          <div style={{ fontSize: 11.5, color: "#8a8071", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>Top Referral Sources</div>
+          {topReferrals.length === 0 ? <div style={{ color: "#a39a89", fontSize: 13 }}>No referral data logged yet.</div> : topReferrals.map(([src, count]) => (
+            <div key={src} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+              <span>{src}</span><span style={{ fontWeight: 700, color: "#6B1E23" }}>{count}</span>
             </div>
           ))}
         </div>
@@ -2216,6 +2280,20 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
           <div>
             <label style={{ fontSize: 11.5, color: "#8a8071" }}>Next follow-up date</label>
             <input className="beo-input" type="date" value={budget.followUpDate || ""} onChange={e => update({ followUpDate: e.target.value })} style={{ marginTop: 4 }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11.5, color: "#8a8071" }}>How they found us</label>
+            <select className="beo-input" value={budget.referralSource || ""} onChange={e => update({ referralSource: e.target.value })} style={{ marginTop: 4 }}>
+              <option value="">— Select —</option>
+              <option value="Justdial">Justdial</option>
+              <option value="Instagram">Instagram</option>
+              <option value="Facebook">Facebook</option>
+              <option value="Word of mouth">Word of mouth</option>
+              <option value="Walk-in">Walk-in</option>
+              <option value="Repeat client">Repeat client</option>
+              <option value="Vendor referral">Vendor referral</option>
+              <option value="Other">Other</option>
+            </select>
           </div>
         </div>
         <label style={{ fontSize: 11.5, color: "#8a8071", display: "block", marginBottom: 6 }}>Status</label>
@@ -4875,6 +4953,113 @@ function ClientDirectoryView({ budgets, proposals, corpQuotes, onOpenBudget, onO
           );
         })
       )}
+    </div>
+  );
+}
+
+function CalendarView({ budgets, corpQuotes, onOpenBudget, onOpenQuote }) {
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [selectedDate, setSelectedDate] = useState(null);
+
+  const itemsByDate = {};
+  budgets.forEach(b => {
+    if (!b.date) return;
+    (itemsByDate[b.date] = itemsByDate[b.date] || []).push({ type: "budget", id: b.id, label: b.name, sub: b.clientName, onClick: () => onOpenBudget(b.id) });
+  });
+  corpQuotes.forEach(q => {
+    if (!q.date) return;
+    (itemsByDate[q.date] = itemsByDate[q.date] || []).push({ type: "quote", id: q.id, label: q.name, sub: q.clientName, onClick: () => onOpenQuote(q.id) });
+  });
+
+  const firstOfMonth = new Date(viewYear, viewMonth, 1);
+  const startWeekday = firstOfMonth.getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const dateKey = (d) => `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const monthLabel = firstOfMonth.toLocaleString("en-IN", { month: "long", year: "numeric" });
+  const todayKey = today.toISOString().slice(0, 10);
+
+  const goPrev = () => { if (viewMonth === 0) { setViewYear(viewYear - 1); setViewMonth(11); } else setViewMonth(viewMonth - 1); };
+  const goNext = () => { if (viewMonth === 11) { setViewYear(viewYear + 1); setViewMonth(0); } else setViewMonth(viewMonth + 1); };
+
+  const selectedItems = selectedDate ? (itemsByDate[selectedDate] || []) : [];
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23" }}>📅 {monthLabel}</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="beo-btn beo-btn-ghost" onClick={goPrev}>‹ Prev</button>
+          <button className="beo-btn beo-btn-ghost" onClick={() => { setViewYear(today.getFullYear()); setViewMonth(today.getMonth()); }}>Today</button>
+          <button className="beo-btn beo-btn-ghost" onClick={goNext}>Next ›</button>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16 }}>
+        <div className="beo-card" style={{ padding: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 6 }}>
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
+              <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#8a8071", padding: "4px 0" }}>{d}</div>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+            {cells.map((d, i) => {
+              if (d === null) return <div key={i}></div>;
+              const key = dateKey(d);
+              const items = itemsByDate[key] || [];
+              const busy = items.length >= 2;
+              const isToday = key === todayKey;
+              return (
+                <div
+                  key={i}
+                  onClick={() => setSelectedDate(key)}
+                  style={{
+                    minHeight: 70, borderRadius: 6, padding: 6, cursor: "pointer",
+                    border: isToday ? "2px solid #B8934A" : busy ? "1.5px solid #c9585d" : "1px solid #F1EADA",
+                    background: selectedDate === key ? "#FAF3E3" : "#fff"
+                  }}
+                >
+                  <div style={{ fontSize: 11.5, fontWeight: isToday ? 700 : 500, color: isToday ? "#B8934A" : "#333" }}>{d}</div>
+                  {items.slice(0, 2).map((it, idx) => (
+                    <div key={idx} style={{ fontSize: 9.5, marginTop: 2, padding: "1px 4px", borderRadius: 3, background: it.type === "budget" ? "#6B1E23" : "#4A5568", color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</div>
+                  ))}
+                  {items.length > 2 && <div style={{ fontSize: 9.5, color: "#8a8071", marginTop: 2 }}>+{items.length - 2} more</div>}
+                  {busy && <div style={{ fontSize: 9, color: "#c9585d", fontWeight: 700, marginTop: 2 }}>⚠ Busy day</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="beo-card" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>{selectedDate ? selectedDate : "Select a date"}</div>
+          {!selectedDate ? (
+            <div style={{ color: "#a39a89", fontSize: 13 }}>Click a day on the calendar to see what's scheduled.</div>
+          ) : selectedItems.length === 0 ? (
+            <div style={{ color: "#a39a89", fontSize: 13 }}>Nothing scheduled this day.</div>
+          ) : (
+            <React.Fragment>
+              {selectedItems.length >= 2 && (
+                <div style={{ background: "#F7E3D9", color: "#A85C3D", fontSize: 12, padding: "8px 10px", borderRadius: 6, marginBottom: 10 }}>
+                  ⚠ {selectedItems.length} events land on this date — double-check venues and staffing don't clash.
+                </div>
+              )}
+              {selectedItems.map((it, idx) => (
+                <div key={idx} onClick={it.onClick} style={{ padding: "8px 4px", borderTop: idx > 0 ? "1px solid #F1EADA" : "none", cursor: "pointer" }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: it.type === "budget" ? "#6B1E23" : "#4A5568", textTransform: "uppercase" }}>{it.type === "budget" ? "Client Budget" : "Corporate Quote"}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{it.label}</div>
+                  {it.sub && <div style={{ fontSize: 12, color: "#8a8071" }}>{it.sub}</div>}
+                </div>
+              ))}
+            </React.Fragment>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
