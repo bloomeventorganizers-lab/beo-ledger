@@ -954,6 +954,7 @@ function MainApp({ user }) {
   const [activeCateringId, setActiveCateringId] = useState(null);
   const [activityLog, setActivityLog] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [vendorCategories, setVendorCategories] = useState(["Anchor", "Music Band", "Live Band", "Singer", "Other Artist", "Vendor", "Other"]);
   const [activeVendorId, setActiveVendorId] = useState(null);
   const [ideas, setIdeas] = useState([]);
   const [decorFunctions, setDecorFunctions] = useState([]);
@@ -991,6 +992,7 @@ function MainApp({ user }) {
       else setActivityLog([]);
       if (data && data.vendors) setVendors(data.vendors);
       else setVendors([]);
+      if (data && data.vendorCategories) setVendorCategories(data.vendorCategories);
       if (data && data.ideas) setIdeas(data.ideas);
       else setIdeas([]);
       if (data && data.decorFunctions) setDecorFunctions(data.decorFunctions);
@@ -1065,10 +1067,10 @@ function MainApp({ user }) {
     if (!loaded) return;
     if (skipNextSharedSave.current) { skipNextSharedSave.current = false; return; }
     setSyncStatus("syncing");
-    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, ideas, decorFunctions, projects, customerLeads }, { merge: true })
+    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, vendorCategories, ideas, decorFunctions, projects, customerLeads }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [cities, corpQuotes, activityLog, vendors, ideas, decorFunctions, projects, customerLeads]);
+  }, [cities, corpQuotes, activityLog, vendors, vendorCategories, ideas, decorFunctions, projects, customerLeads]);
 
   const logActivity = (what) => {
     const entry = { id: uid(), who: getDeviceUser(), what, when: Date.now() };
@@ -1359,11 +1361,12 @@ function MainApp({ user }) {
           />
         )}
         {isAdmin && tab === "vendors" && (
-          <VendorsView vendors={vendors} setVendors={setVendors} onOpen={openVendor} logActivity={logActivity} />
+          <VendorsView vendors={vendors} setVendors={setVendors} vendorCategories={vendorCategories} setVendorCategories={setVendorCategories} onOpen={openVendor} logActivity={logActivity} />
         )}
         {isAdmin && tab === "vendorDetail" && activeVendorId && (
           <VendorDetail
             vendor={vendors.find(v => v.id === activeVendorId)}
+            vendorCategories={vendorCategories}
             onBack={() => setTab("vendors")}
             onChange={(updated) => setVendors(prev => prev.map(v => v.id === updated.id ? updated : v))}
           />
@@ -3077,13 +3080,12 @@ function HotelDetail({ city, hotel, cities, quotes, onOpenQuote, onBack, onChang
 
 /* ============================= CORPORATE QUOTES ============================= */
 
-const VENDOR_CATEGORIES = ["Anchor", "Music Band", "Live Band", "Singer", "Other Artist", "Vendor", "Other"];
-
-function VendorsView({ vendors, setVendors, onOpen, logActivity }) {
+function VendorsView({ vendors, setVendors, vendorCategories, setVendorCategories, onOpen, logActivity }) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [newName, setNewName] = useState("");
-  const [newCategory, setNewCategory] = useState("Anchor");
+  const [newCategory, setNewCategory] = useState(vendorCategories[0] || "Vendor");
+  const [newCategoryDraft, setNewCategoryDraft] = useState("");
 
   const q = search.trim().toLowerCase();
   const filtered = vendors.filter(v => {
@@ -3096,7 +3098,7 @@ function VendorsView({ vendors, setVendors, onOpen, logActivity }) {
     const name = newName.trim();
     if (!name) return;
     const v = {
-      id: uid(), name, category: newCategory, officeLocation: "", mapUrl: "",
+      id: uid(), name, category: newCategory, officeLocation: "", mapUrl: "", description: "",
       metNote: "", costing: "", phones: [], photos: [], documents: [], workHistory: []
     };
     setVendors(prev => [v, ...prev]);
@@ -3104,6 +3106,20 @@ function VendorsView({ vendors, setVendors, onOpen, logActivity }) {
     setNewName("");
   };
   const removeVendor = (id) => setVendors(prev => prev.filter(v => v.id !== id));
+
+  const addCategory = () => {
+    const cat = newCategoryDraft.trim();
+    if (!cat || vendorCategories.includes(cat)) { setNewCategoryDraft(""); return; }
+    setVendorCategories(prev => [...prev, cat]);
+    setNewCategory(cat);
+    setNewCategoryDraft("");
+  };
+  const removeCategory = (cat) => {
+    if (vendors.some(v => v.category === cat)) { alert(`Can't remove "${cat}" — one or more vendors still use it. Change their category first.`); return; }
+    setVendorCategories(prev => prev.filter(c => c !== cat));
+    if (newCategory === cat) setNewCategory(vendorCategories.find(c => c !== cat) || "");
+    if (categoryFilter === cat) setCategoryFilter("All");
+  };
 
   return (
     <div>
@@ -3113,14 +3129,26 @@ function VendorsView({ vendors, setVendors, onOpen, logActivity }) {
         <input className="beo-input" placeholder="🔍 Search by name…" value={search} onChange={e => setSearch(e.target.value)} style={{ flex: "1 1 220px" }} />
         <select className="beo-input" style={{ width: "auto" }} value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
           <option value="All">All Categories</option>
-          {VENDOR_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          {vendorCategories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
+      </div>
+
+      <div className="beo-card" style={{ padding: 14, marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Categories:</span>
+        {vendorCategories.map(c => (
+          <span key={c} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#F1EADA", borderRadius: 12, padding: "4px 10px", fontSize: 12 }}>
+            {c}
+            <span onClick={() => removeCategory(c)} style={{ cursor: "pointer", color: "#c98b8e" }}>×</span>
+          </span>
+        ))}
+        <input className="beo-input" placeholder="New category (e.g. Flower Vendor)" value={newCategoryDraft} onChange={e => setNewCategoryDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && addCategory()} style={{ width: 200, padding: "6px 10px", fontSize: 12.5 }} />
+        <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={addCategory}>＋ Add category</button>
       </div>
 
       <div className="beo-card" style={{ padding: 14, marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
         <input className="beo-input" placeholder="Name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addVendor()} style={{ flex: "1 1 200px" }} />
         <select className="beo-input" style={{ width: "auto" }} value={newCategory} onChange={e => setNewCategory(e.target.value)}>
-          {VENDOR_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          {vendorCategories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
         <button className="beo-btn beo-btn-primary" onClick={addVendor}>＋ Add</button>
       </div>
@@ -3136,6 +3164,7 @@ function VendorsView({ vendors, setVendors, onOpen, logActivity }) {
               )}
               <div style={{ fontSize: 11, color: "#B8934A", fontWeight: 700, textTransform: "uppercase" }}>{v.category}</div>
               <div style={{ fontWeight: 700, fontSize: 14.5 }}>{v.name}</div>
+              {v.description && <div style={{ fontSize: 12, color: "#5a5348", marginTop: 3 }}>{v.description}</div>}
               <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>{v.officeLocation || "No location added"}</div>
               <span style={{ position: "absolute", top: 10, right: 10, color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeVendor(v.id); }}>🗑</span>
             </div>
@@ -3146,7 +3175,7 @@ function VendorsView({ vendors, setVendors, onOpen, logActivity }) {
   );
 }
 
-function VendorDetail({ vendor, onBack, onChange }) {
+function VendorDetail({ vendor, vendorCategories, onBack, onChange }) {
   const [photoIdx, setPhotoIdx] = useState(0);
   const [newPhotoUrl, setNewPhotoUrl] = useState("");
   const [newDocLabel, setNewDocLabel] = useState("");
@@ -3235,8 +3264,10 @@ function VendorDetail({ vendor, onBack, onChange }) {
             <input className="beo-input beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 8, border: "none", padding: "4px 0" }} value={vendor.name} onChange={e => update({ name: e.target.value })} />
             <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Category</label>
             <select className="beo-input" value={vendor.category} onChange={e => update({ category: e.target.value })} style={{ marginTop: 4, marginBottom: 12, maxWidth: 220 }}>
-              {VENDOR_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              {vendorCategories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Description</label>
+            <textarea className="beo-input" rows={2} value={vendor.description || ""} onChange={e => update({ description: e.target.value })} style={{ marginTop: 4, marginBottom: 12, resize: "vertical", fontFamily: "inherit" }} placeholder="e.g. Sells fresh flowers only — roses, marigold, orchids for stage decor" />
             <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Office Location</label>
             <input className="beo-input" value={vendor.officeLocation || ""} onChange={e => update({ officeLocation: e.target.value })} style={{ marginTop: 4, marginBottom: 12 }} />
             <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Where we met</label>
