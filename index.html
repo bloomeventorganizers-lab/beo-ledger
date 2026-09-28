@@ -1971,6 +1971,7 @@ function MainApp({ user }) {
   const [rfps, setRfps] = useState([]);
   const [sponsorEvents, setSponsorEvents] = useState([]);
   const [decorAssets, setDecorAssets] = useState([]);
+  const [noteEntries, setNoteEntries] = useState([]);
   const [vaultDocuments, setVaultDocuments] = useState([]);
   const [businessDocuments, setBusinessDocuments] = useState([]);
   const [activeVendorId, setActiveVendorId] = useState(null);
@@ -2026,6 +2027,8 @@ function MainApp({ user }) {
       else setSponsorEvents([]);
       if (data && data.decorAssets) setDecorAssets(data.decorAssets);
       else setDecorAssets([]);
+      if (data && data.noteEntries) setNoteEntries(data.noteEntries);
+      else setNoteEntries([]);
       if (data && data.ideas) setIdeas(data.ideas);
       else setIdeas([]);
       if (data && data.decorFunctions) setDecorFunctions(data.decorFunctions);
@@ -2100,10 +2103,10 @@ function MainApp({ user }) {
     if (!loaded) return;
     if (skipNextSharedSave.current) { skipNextSharedSave.current = false; return; }
     setSyncStatus("syncing");
-    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, vaultDocuments, giftingCampaigns, rfps, sponsorEvents, decorAssets, ideas, decorFunctions, projects, customerLeads }, { merge: true })
+    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, vaultDocuments, giftingCampaigns, rfps, sponsorEvents, decorAssets, noteEntries, ideas, decorFunctions, projects, customerLeads }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, vaultDocuments, giftingCampaigns, rfps, sponsorEvents, decorAssets, ideas, decorFunctions, projects, customerLeads]);
+  }, [cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, vaultDocuments, giftingCampaigns, rfps, sponsorEvents, decorAssets, noteEntries, ideas, decorFunctions, projects, customerLeads]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const dueFollowUps = (budgets || []).filter(b => b.followUpDate && b.followUpDate <= todayStr && b.status !== "Converted");
@@ -2224,22 +2227,22 @@ function MainApp({ user }) {
           >
             ☰
           </button>
-          <SidebarIcon expanded={sidebarExpanded} label="Calendar" title="Calendar" active={tab === "calendar"} onClick={() => setTab("calendar")}>📅</SidebarIcon>
-          <SidebarIcon expanded={sidebarExpanded} label="Quick Quote" title="Quick Quote" active={tab === "quickquote"} onClick={() => setTab("quickquote")}>⚡</SidebarIcon>
-          <SidebarIcon expanded={sidebarExpanded} label="Vendors & Artists" title="Vendors & Artists" active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>👥</SidebarIcon>
-          <SidebarIcon expanded={sidebarExpanded} label="Idea Box" title="Idea Box" active={tab === "ideas"} onClick={() => setTab("ideas")}>💡</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Catering" title="Catering" active={tab === "catering" || tab === "cateringDetail"} onClick={() => setTab("catering")}>🍽️</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Decor" title="Decor" active={tab === "decor" || tab === "decorTheme"} onClick={() => setTab("decor")}>🎨</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Notes" title="Notes" active={tab === "notes"} onClick={() => setTab("notes")}>📝</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Idea Box" title="Idea Box" active={tab === "ideas"} onClick={() => setTab("ideas")}>💡</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Vendors & Artists" title="Vendors & Artists" active={tab === "vendors" || tab === "vendorDetail"} onClick={() => setTab("vendors")}>👥</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Staff" title="Staff" active={tab === "staff"} onClick={() => setTab("staff")}>🧑‍💼</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Quick Quote" title="Quick Quote" active={tab === "quickquote"} onClick={() => setTab("quickquote")}>⚡</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Sponsors & Exhibitors" title="Sponsors & Exhibitors" active={tab === "sponsors"} onClick={() => setTab("sponsors")}>🤝</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Expenses & P&L" title="Expenses & P&L" active={tab === "expenses"} onClick={() => setTab("expenses")}>💸</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Projects" title="Projects" active={tab === "projects" || tab === "projectDetail"} onClick={() => setTab("projects")}>📋</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Proposals" title="Proposals" active={tab === "proposals" || tab === "proposalBuilder"} onClick={() => setTab("proposals")}>✦</SidebarIcon>
-          <SidebarIcon expanded={sidebarExpanded} label="Catering" title="Catering" active={tab === "catering" || tab === "cateringDetail"} onClick={() => setTab("catering")}>🍽️</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Decor Stock" title="Decor Stock — Dispatch & Return" active={tab === "decorstock"} onClick={() => setTab("decorstock")}>📦</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Clients" title="Clients" active={tab === "clients"} onClick={() => setTab("clients")}>👤</SidebarIcon>
-          <SidebarIcon expanded={sidebarExpanded} label="Staff" title="Staff" active={tab === "staff"} onClick={() => setTab("staff")}>🧑‍💼</SidebarIcon>
-          <SidebarIcon expanded={sidebarExpanded} label="Expenses & P&L" title="Expenses & P&L" active={tab === "expenses"} onClick={() => setTab("expenses")}>💸</SidebarIcon>
-          <SidebarIcon expanded={sidebarExpanded} label="Document Vault" title="Document Vault" active={tab === "vault"} onClick={() => setTab("vault")}>🗄️</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Corporate Gifting" title="Corporate Gifting" active={tab === "gifting"} onClick={() => setTab("gifting")}>🎁</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Hotel RFP" title="Hotel RFP & Quote Comparison" active={tab === "rfp"} onClick={() => setTab("rfp")}>📨</SidebarIcon>
-          <SidebarIcon expanded={sidebarExpanded} label="Sponsors & Exhibitors" title="Sponsors & Exhibitors" active={tab === "sponsors"} onClick={() => setTab("sponsors")}>🤝</SidebarIcon>
-          <SidebarIcon expanded={sidebarExpanded} label="Decor Stock" title="Decor Stock — Dispatch & Return" active={tab === "decorstock"} onClick={() => setTab("decorstock")}>📦</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Document Vault" title="Document Vault" active={tab === "vault"} onClick={() => setTab("vault")}>🗄️</SidebarIcon>
           <div style={{ flex: 1 }}></div>
           <div style={{ position: "relative", marginBottom: 16 }}>
             <button
@@ -2291,7 +2294,8 @@ function MainApp({ user }) {
             <TabBtn active={tab === "quotes" || tab === "quoteBuilder"} onClick={() => setTab("quotes")}>Corporate Quotes</TabBtn>
           </nav>
           {isAdmin && (
-            <div style={{ position: "relative", flexShrink: 0 }}>
+            <div style={{ position: "relative", flexShrink: 0, display: "flex", alignItems: "center", gap: 2 }}>
+              <button onClick={() => setTab("calendar")} title="Calendar" style={{ background: tab === "calendar" ? "#F1EADA" : "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 20, padding: "6px 8px" }}>📅</button>
               <button onClick={() => setNotifPanelOpen(!notifPanelOpen)} title="Follow-ups due" style={{ position: "relative", background: "transparent", border: "none", cursor: "pointer", fontSize: 20, padding: "6px 8px" }}>
                 🔔
                 {dueFollowUps.length > 0 && (
@@ -2572,6 +2576,7 @@ function MainApp({ user }) {
         {isAdmin && tab === "rfp" && <HotelRfpView rfps={rfps} setRfps={setRfps} cities={cities} logActivity={logActivity} />}
         {isAdmin && tab === "sponsors" && <SponsorExhibitorView sponsorEvents={sponsorEvents} setSponsorEvents={setSponsorEvents} logActivity={logActivity} />}
         {isAdmin && tab === "decorstock" && <DecorStockView decorAssets={decorAssets} setDecorAssets={setDecorAssets} budgets={budgets} logActivity={logActivity} />}
+        {isAdmin && tab === "notes" && <NotesView noteEntries={noteEntries} setNoteEntries={setNoteEntries} budgets={budgets} onOpenBudget={openBudget} logActivity={logActivity} />}
         {tab === "guestManager" && guestManagerBudgetId && (
           <GuestRoomManagerView
             budget={budgets.find(b => b.id === guestManagerBudgetId)}
@@ -2915,6 +2920,14 @@ function StatCard({ label, value, sub, color }) {
 }
 
 function DashboardView({ budgets, corpQuotes, dueFollowUps, onOpen, activityLog }) {
+  const [openSections, setOpenSections] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("beo_dash_open") || "{}"); } catch (e) { return {}; }
+  });
+  const toggleSection = (key) => setOpenSections(prev => {
+    const next = { ...prev, [key]: !prev[key] };
+    try { localStorage.setItem("beo_dash_open", JSON.stringify(next)); } catch (e) {}
+    return next;
+  });
   const now = new Date();
   const curMonth = now.getMonth(), curYear = now.getFullYear();
 
@@ -3013,14 +3026,18 @@ function DashboardView({ budgets, corpQuotes, dueFollowUps, onOpen, activityLog 
           <div className="beo-serif" style={{ fontSize: 15, fontWeight: 700, color: "#6B1E23", marginBottom: 10 }}>Today's Priorities</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 6 }}>Follow-ups Due ({dueFollowUps.length})</div>
-              {dueFollowUps.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5 }}>None due.</div> : dueFollowUps.map(b => (
+              <div onClick={() => toggleSection("followups")} style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 6, cursor: "pointer", userSelect: "none", display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "#B8934A" }}>{openSections.followups ? "▼" : "▶"}</span> Follow-ups Due ({dueFollowUps.length})
+              </div>
+              {!openSections.followups ? null : dueFollowUps.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5 }}>None due.</div> : dueFollowUps.map(b => (
                 <div key={b.id} onClick={() => onOpen(b.id)} style={{ fontSize: 13, padding: "4px 0", cursor: "pointer", color: "#6B1E23" }}>{b.clientName || b.name}</div>
               ))}
             </div>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 6 }}>Events Today ({eventsToday.length})</div>
-              {eventsToday.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5 }}>Nothing scheduled today.</div> : eventsToday.map((e, i) => (
+              <div onClick={() => toggleSection("eventstoday")} style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 6, cursor: "pointer", userSelect: "none", display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "#B8934A" }}>{openSections.eventstoday ? "▼" : "▶"}</span> Events Today ({eventsToday.length})
+              </div>
+              {!openSections.eventstoday ? null : eventsToday.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5 }}>Nothing scheduled today.</div> : eventsToday.map((e, i) => (
                 <div key={i} style={{ fontSize: 13, padding: "4px 0" }}>{e.label} <span style={{ color: "#8a8071", fontSize: 11.5 }}>({e.type})</span></div>
               ))}
             </div>
@@ -3077,8 +3094,10 @@ function DashboardView({ budgets, corpQuotes, dueFollowUps, onOpen, activityLog 
       </div>
 
       <div className="beo-card" style={{ padding: 20 }}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>Events this month</div>
-        {thisMonthEvents.length === 0 ? (
+        <div onClick={() => toggleSection("eventsmonth")} style={{ fontWeight: 700, marginBottom: openSections.eventsmonth ? 10 : 0, cursor: "pointer", userSelect: "none", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "#B8934A" }}>{openSections.eventsmonth ? "▼" : "▶"}</span> Events this month <span style={{ fontWeight: 500, color: "#8a8071", fontSize: 13 }}>({thisMonthEvents.length})</span>
+        </div>
+        {!openSections.eventsmonth ? null : thisMonthEvents.length === 0 ? (
           <div style={{ color: "#a39a89", fontSize: 13.5 }}>No events scheduled this month.</div>
         ) : thisMonthEvents.map(b => (
           <div key={b.id} onClick={() => onOpen(b.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 4px", borderTop: "1px solid #F1EADA", cursor: "pointer", fontSize: 13.5 }}>
@@ -7848,6 +7867,228 @@ function DecorStockView({ decorAssets, setDecorAssets, budgets, logActivity }) {
                 {a.movements.length > 5 && <div style={{ fontSize: 11, color: "#a39a89" }}>+ {a.movements.length - 5} earlier movements</div>}
               </div>
             )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function NotesView({ noteEntries, setNoteEntries, budgets, onOpenBudget, logActivity }) {
+  const EMPTY = { title: "", text: "", type: "General", clientName: "", needsAction: false, attachments: [] };
+  const TYPES = ["Meeting outcome", "Client request", "To-do", "General"];
+  const [draft, setDraft] = useState(EMPTY);
+  const [editingId, setEditingId] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [linkDraft, setLinkDraft] = useState("");
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [clientFilter, setClientFilter] = useState("All");
+  const [actionOnly, setActionOnly] = useState(false);
+
+  const budgetClientNames = Array.from(new Set((budgets || []).map(b => b.clientName).filter(Boolean))).sort();
+  const noteClientNames = Array.from(new Set(noteEntries.map(n => n.clientName).filter(Boolean))).sort();
+
+  const deleteStorageFile = (att) => {
+    if (att && att.storagePath) window.__storage.ref().child(att.storagePath).delete().catch(() => {});
+  };
+
+  const attachFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    setUploadError(""); setUploading(true);
+    for (const file of files) {
+      try {
+        const path = `notes/${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${file.name}`;
+        const ref = window.__storage.ref().child(path);
+        await ref.put(file);
+        const url = await ref.getDownloadURL();
+        const att = { id: uid(), name: file.name, url, storagePath: path, isImage: (file.type || "").startsWith("image/") };
+        setDraft(d => ({ ...d, attachments: [...d.attachments, att] }));
+      } catch (err) {
+        setUploadError(`Could not upload "${file.name}": ${err.message} — you can still attach it as a link instead.`);
+      }
+    }
+    setUploading(false);
+  };
+
+  const attachLink = () => {
+    let url = linkDraft.trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    let name = url;
+    try { name = new URL(url).hostname.replace(/^www\./, ""); } catch (e) {}
+    setDraft(d => ({ ...d, attachments: [...d.attachments, { id: uid(), name, url, isLink: true }] }));
+    setLinkDraft("");
+  };
+
+  const removeDraftAttachment = (att) => {
+    const original = editingId ? noteEntries.find(n => n.id === editingId) : null;
+    const wasSaved = original && (original.attachments || []).some(a => a.id === att.id);
+    if (!wasSaved) deleteStorageFile(att);
+    setDraft(d => ({ ...d, attachments: d.attachments.filter(a => a.id !== att.id) }));
+  };
+
+  const resetForm = () => { setDraft(EMPTY); setEditingId(null); setLinkDraft(""); setUploadError(""); };
+
+  const saveNote = () => {
+    if (!draft.title.trim() && !draft.text.trim() && draft.attachments.length === 0) {
+      alert("Write something or attach a file first.");
+      return;
+    }
+    const clean = { ...draft, title: draft.title.trim(), clientName: draft.clientName.trim() };
+    if (editingId) {
+      const original = noteEntries.find(n => n.id === editingId);
+      (original ? original.attachments || [] : []).filter(a => !draft.attachments.some(x => x.id === a.id)).forEach(deleteStorageFile);
+      setNoteEntries(prev => prev.map(n => n.id === editingId ? { ...n, ...clean, updatedAt: Date.now() } : n));
+    } else {
+      setNoteEntries(prev => [{ id: uid(), ...clean, done: false, createdAt: Date.now() }, ...prev]);
+      if (logActivity) logActivity(`Added note${clean.clientName ? " for " + clean.clientName : ""}: ${clean.title || "(untitled)"}`);
+    }
+    resetForm();
+  };
+
+  const startEdit = (n) => {
+    setEditingId(n.id);
+    setDraft({ title: n.title || "", text: n.text || "", type: n.type || "General", clientName: n.clientName || "", needsAction: !!n.needsAction, attachments: n.attachments || [] });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const removeNote = (n) => {
+    if (!window.confirm("Delete this note and its attachments?")) return;
+    (n.attachments || []).forEach(deleteStorageFile);
+    setNoteEntries(prev => prev.filter(x => x.id !== n.id));
+    if (editingId === n.id) resetForm();
+  };
+
+  const toggleDone = (id) => setNoteEntries(prev => prev.map(n => n.id === id ? { ...n, done: !n.done } : n));
+
+  const q = search.trim().toLowerCase();
+  const filtered = noteEntries
+    .filter(n => typeFilter === "All" || n.type === typeFilter)
+    .filter(n => clientFilter === "All" || n.clientName === clientFilter)
+    .filter(n => !actionOnly || (n.needsAction && !n.done))
+    .filter(n => !q || (n.title || "").toLowerCase().includes(q) || (n.text || "").toLowerCase().includes(q) || (n.clientName || "").toLowerCase().includes(q))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  const openActionCount = noteEntries.filter(n => n.needsAction && !n.done).length;
+
+  const typeColor = (t) => t === "Meeting outcome" ? { bg: "#E3ECF7", fg: "#2A6A9E" } : t === "Client request" ? { bg: "#F7E3D9", fg: "#A85C3D" } : t === "To-do" ? { bg: "#EAF3EC", fg: "#2E7D32" } : { bg: "#F1EADA", fg: "#6b6357" };
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 4 }}>📝 Notes</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", marginBottom: 16 }}>
+        Meeting outcomes, things a client asked for, or any random note. Link it to a client if you want, and attach files or links.
+        {openActionCount > 0 && <b style={{ color: "#A85C3D" }}> {openActionCount} note{openActionCount === 1 ? "" : "s"} still need action.</b>}
+      </div>
+
+      <datalist id="note-clients">{budgetClientNames.map(c => <option key={c} value={c} />)}</datalist>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 18, borderLeft: editingId ? "4px solid #B8934A" : "none" }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>{editingId ? "Editing note" : "New note"}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1.4fr", gap: 8, marginBottom: 8 }}>
+          <input className="beo-input" placeholder="Title (e.g. Call with Sharma family)" value={draft.title} onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} />
+          <select className="beo-input" value={draft.type} onChange={e => setDraft(d => ({ ...d, type: e.target.value }))}>
+            {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input className="beo-input" list="note-clients" placeholder="Client (optional)" value={draft.clientName} onChange={e => setDraft(d => ({ ...d, clientName: e.target.value }))} />
+        </div>
+        <textarea className="beo-input" rows={5} placeholder="Write the outcome, what the client asked for, what needs to be done…" value={draft.text} onChange={e => setDraft(d => ({ ...d, text: e.target.value }))} style={{ resize: "vertical", fontFamily: "inherit", marginBottom: 8 }} />
+
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 10 }}>
+          <input type="checkbox" checked={draft.needsAction} onChange={e => setDraft(d => ({ ...d, needsAction: e.target.checked }))} /> Needs action (I have work to do on this)
+        </label>
+
+        {draft.attachments.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            {draft.attachments.map(a => (
+              <span key={a.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#F1EADA", borderRadius: 14, padding: "4px 10px", fontSize: 12 }}>
+                {a.isImage ? "🖼" : a.isLink ? "🔗" : "📎"} <a href={a.url} target="_blank" rel="noreferrer" style={{ color: "#6B1E23", textDecoration: "none" }}>{a.name}</a>
+                <span onClick={() => removeDraftAttachment(a)} style={{ color: "#c98b8e", cursor: "pointer" }}>×</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+          <label className="beo-btn beo-btn-ghost" style={{ cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.6 : 1, fontSize: 12.5 }}>
+            {uploading ? "Uploading…" : "📎 Attach files"}
+            <input type="file" multiple onChange={attachFiles} disabled={uploading} style={{ display: "none" }} />
+          </label>
+          <input className="beo-input" placeholder="…or paste a link (Drive, photo, etc.)" value={linkDraft} onChange={e => setLinkDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && attachLink()} style={{ flex: "1 1 220px", fontSize: 12.5, padding: "6px 8px" }} />
+          <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12.5 }} onClick={attachLink}>＋ Add link</button>
+        </div>
+        {uploadError && <div style={{ color: "#c9585d", fontSize: 12, marginBottom: 8 }}>{uploadError}</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button className="beo-btn beo-btn-primary" onClick={saveNote} disabled={uploading}>{editingId ? "Save changes" : "Save note"}</button>
+          {editingId && <button className="beo-btn beo-btn-ghost" onClick={resetForm}>Cancel</button>}
+        </div>
+      </div>
+
+      <div className="beo-card" style={{ padding: 12, marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input className="beo-input" placeholder="🔍 Search notes…" value={search} onChange={e => setSearch(e.target.value)} style={{ flex: "1 1 200px" }} />
+        <select className="beo-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ width: "auto" }}>
+          <option value="All">All types</option>
+          {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select className="beo-input" value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={{ width: "auto" }}>
+          <option value="All">All clients</option>
+          {noteClientNames.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+          <input type="checkbox" checked={actionOnly} onChange={e => setActionOnly(e.target.checked)} /> Needs action only
+        </label>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>{noteEntries.length === 0 ? "No notes yet. Write your first one above." : "No notes match these filters."}</div>
+      ) : filtered.map(n => {
+        const tc = typeColor(n.type);
+        const matchingBudgets = n.clientName ? (budgets || []).filter(b => b.clientName === n.clientName) : [];
+        return (
+          <div key={n.id} className="beo-card" style={{ padding: 16, marginBottom: 12, opacity: n.needsAction && n.done ? 0.7 : 1 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15, textDecoration: n.needsAction && n.done ? "line-through" : "none" }}>{n.title || "(untitled)"}</div>
+                <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontWeight: 700, padding: "1px 8px", borderRadius: 10, background: tc.bg, color: tc.fg }}>{n.type || "General"}</span>
+                  {n.clientName && <span>👤 {n.clientName}</span>}
+                  <span>{n.createdAt ? new Date(n.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                  {n.updatedAt && <span>(edited)</span>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11.5 }} onClick={() => startEdit(n)}>Edit</button>
+                <span onClick={() => removeNote(n)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span>
+              </div>
+            </div>
+
+            {n.text && <div style={{ whiteSpace: "pre-wrap", fontSize: 13.5, lineHeight: 1.55, color: "#333", margin: "8px 0" }}>{n.text}</div>}
+
+            {(n.attachments || []).length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0" }}>
+                {n.attachments.map(a => a.isImage ? (
+                  <a key={a.id} href={a.url} target="_blank" rel="noreferrer" title={a.name}><img src={a.url} alt={a.name} style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 6, border: "1px solid #F1EADA" }} onError={e => e.target.style.opacity = 0.25} /></a>
+                ) : (
+                  <a key={a.id} href={a.url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#F1EADA", borderRadius: 14, padding: "4px 10px", fontSize: 12, color: "#6B1E23", textDecoration: "none" }}>{a.isLink ? "🔗" : "📎"} {a.name}</a>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+              {n.needsAction && (
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: n.done ? "#2E7D32" : "#A85C3D", fontWeight: 600 }}>
+                  <input type="checkbox" checked={!!n.done} onChange={() => toggleDone(n.id)} /> {n.done ? "Done" : "Needs action"}
+                </label>
+              )}
+              {matchingBudgets.slice(0, 3).map(b => (
+                <span key={b.id} onClick={() => onOpenBudget && onOpenBudget(b.id)} style={{ fontSize: 12, color: "#6B1E23", cursor: "pointer", textDecoration: "underline" }}>Open budget: {b.name}</span>
+              ))}
+            </div>
           </div>
         );
       })}
