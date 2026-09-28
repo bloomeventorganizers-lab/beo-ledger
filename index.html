@@ -584,6 +584,300 @@
     doc.save(`${(response.clientName || "menu_selection").replace(/[^a-z0-9]/gi, "_")}.pdf`);
   };
 
+  window.generateProcurementPdf = function (response, template, paxCount, shoppingList, kitchenItems, companySettings) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 16;
+    const CREAM = [253, 251, 243];
+    const PRIMARY = [107, 30, 35];
+    const ACCENT = [184, 147, 74];
+    const cs = companySettings || {};
+    let y = 22;
+
+    const newPage = () => {
+      doc.addPage();
+      doc.setFillColor(CREAM[0], CREAM[1], CREAM[2]);
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
+      y = 22;
+    };
+
+    doc.setFillColor(CREAM[0], CREAM[1], CREAM[2]);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+    doc.setFont("times", "bold"); doc.setFontSize(18);
+    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.text("Procurement Shopping List", pageWidth / 2, y, { align: "center" });
+    y += 8;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    doc.setTextColor(60, 55, 48);
+    doc.text(`${template.name || "Menu"} — ${response.clientName || "Client"} — ${paxCount} guests`, pageWidth / 2, y, { align: "center" });
+    y += 10;
+
+    doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 8;
+
+    if (shoppingList.length === 0) {
+      doc.setFont("helvetica", "italic"); doc.setFontSize(10.5);
+      doc.setTextColor(120, 115, 108);
+      doc.text("No ingredient ratios saved for these items yet.", margin, y);
+      y += 8;
+      doc.text("Add ingredients per item in the template (the little cooking-pot button) to auto-fill this list next time.", margin, y);
+      y += 10;
+    } else {
+      doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+      doc.rect(margin, y, pageWidth - margin * 2, 9, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("times", "bold"); doc.setFontSize(10);
+      doc.text("INGREDIENT", margin + 4, y + 6.2);
+      doc.text("QUANTITY NEEDED", pageWidth - margin - 4, y + 6.2, { align: "right" });
+      y += 9;
+
+      shoppingList.forEach((row, i) => {
+        if (y > pageHeight - 24) newPage();
+        if (i % 2 === 0) { doc.setFillColor(247, 242, 230); doc.rect(margin, y, pageWidth - margin * 2, 8, "F"); }
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+        doc.setTextColor(45, 40, 35);
+        doc.text(row.name, margin + 4, y + 5.5);
+        doc.text(`${row.qty} ${row.unit}`, pageWidth - margin - 4, y + 5.5, { align: "right" });
+        y += 8;
+      });
+      y += 6;
+    }
+
+    newPage();
+    doc.setFont("times", "bold"); doc.setFontSize(16);
+    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.text("Kitchen Production Sheet", pageWidth / 2, y, { align: "center" });
+    y += 10;
+    doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 8;
+
+    doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.rect(margin, y, pageWidth - margin * 2, 9, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("times", "bold"); doc.setFontSize(9.5);
+    doc.text("DISH", margin + 4, y + 6.2);
+    doc.text("SECTION", margin + 84, y + 6.2);
+    doc.text("COOK ASSIGNED", margin + 126, y + 6.2);
+    doc.text("SERVE TIME", pageWidth - margin - 4, y + 6.2, { align: "right" });
+    y += 9;
+
+    kitchenItems.forEach((row, i) => {
+      if (y > pageHeight - 24) newPage();
+      if (i % 2 === 0) { doc.setFillColor(247, 242, 230); doc.rect(margin, y, pageWidth - margin * 2, 10, "F"); }
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+      doc.setTextColor(45, 40, 35);
+      doc.text(row.name, margin + 4, y + 6.5);
+      doc.setFontSize(8.5); doc.setTextColor(120, 115, 108);
+      doc.text(row.section, margin + 84, y + 6.5);
+      doc.setDrawColor(220, 210, 190);
+      doc.line(margin + 126, y + 8, margin + 170, y + 8);
+      doc.line(pageWidth - margin - 30, y + 8, pageWidth - margin, y + 8);
+      y += 10;
+    });
+
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      doc.setTextColor(140, 135, 128);
+      doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" });
+    }
+
+    doc.save(`Procurement_${(response.clientName || "client").replace(/[^a-z0-9]/gi, "_")}.pdf`);
+  };
+
+  window.generatePostEventReportPdf = function (budget, actualCosts, actualTotal, quotedTotal, testimonials, companySettings) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 16;
+    const CREAM = [253, 251, 243];
+    const PRIMARY = [107, 30, 35];
+    const ACCENT = [184, 147, 74];
+    const cs = companySettings || {};
+    const inr = (n) => "Rs. " + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+    let y = 22;
+
+    const newPageIfNeeded = (needed) => {
+      if (y + needed > pageHeight - 20) {
+        doc.addPage();
+        doc.setFillColor(CREAM[0], CREAM[1], CREAM[2]);
+        doc.rect(0, 0, pageWidth, pageHeight, "F");
+        y = 22;
+      }
+    };
+
+    doc.setFillColor(CREAM[0], CREAM[1], CREAM[2]);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+    doc.setFont("times", "bold"); doc.setFontSize(19);
+    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.text("Post-Event Report", pageWidth / 2, y, { align: "center" });
+    y += 8;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10.5);
+    doc.setTextColor(60, 55, 48);
+    doc.text(`${budget.name || "Event"}${budget.clientName ? " — " + budget.clientName : ""}${budget.date ? " — " + budget.date : ""}`, pageWidth / 2, y, { align: "center" });
+    y += 12;
+
+    doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 10;
+
+    // Section: Budget vs Actual
+    doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.rect(margin, y, pageWidth - margin * 2, 9, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("times", "bold"); doc.setFontSize(11);
+    doc.text("Budget vs. Actual", margin + 4, y + 6.2);
+    y += 9;
+
+    const variance = actualTotal - quotedTotal;
+    const rows = [
+      ["Quoted Total", inr(quotedTotal)],
+      ["Actual Spend", inr(actualTotal)],
+      [variance > 0 ? "Over Budget" : "Under Budget", inr(Math.abs(variance))],
+    ];
+    rows.forEach((row, i) => {
+      if (i % 2 === 0) { doc.setFillColor(247, 242, 230); doc.rect(margin, y, pageWidth - margin * 2, 8, "F"); }
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+      doc.setTextColor(45, 40, 35);
+      doc.text(row[0], margin + 4, y + 5.5);
+      doc.text(row[1], pageWidth - margin - 4, y + 5.5, { align: "right" });
+      y += 8;
+    });
+    y += 4;
+
+    if (actualCosts && actualCosts.length > 0) {
+      doc.setFont("times", "bold"); doc.setFontSize(10);
+      doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+      doc.text("Actual Spend by Category", margin, y);
+      y += 7;
+      actualCosts.forEach((a, i) => {
+        newPageIfNeeded(8);
+        if (i % 2 === 0) { doc.setFillColor(247, 242, 230); doc.rect(margin, y, pageWidth - margin * 2, 7, "F"); }
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+        doc.setTextColor(45, 40, 35);
+        doc.text(a.category, margin + 4, y + 5);
+        doc.text(inr(a.amount), pageWidth - margin - 4, y + 5, { align: "right" });
+        y += 7;
+      });
+      y += 6;
+    }
+
+    // Section: Testimonials
+    newPageIfNeeded(20);
+    doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.rect(margin, y, pageWidth - margin * 2, 9, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("times", "bold"); doc.setFontSize(11);
+    doc.text("Client Feedback", margin + 4, y + 6.2);
+    y += 12;
+
+    if (!testimonials || testimonials.length === 0) {
+      doc.setFont("helvetica", "italic"); doc.setFontSize(10);
+      doc.setTextColor(120, 115, 108);
+      doc.text("No testimonials collected yet for this event.", margin, y);
+      y += 10;
+    } else {
+      testimonials.forEach(t => {
+        newPageIfNeeded(20);
+        doc.setFont("times", "bold"); doc.setFontSize(10);
+        doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+        const stars = "*".repeat(t.rating || 0) + " (" + (t.rating || 0) + "/5)";
+        doc.text(`${t.name || "Anonymous"} — ${stars}`, margin, y);
+        y += 6;
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+        doc.setTextColor(60, 55, 48);
+        const lines = doc.splitTextToSize(t.text || "", pageWidth - margin * 2 - 4);
+        lines.forEach(line => { newPageIfNeeded(6); doc.text(line, margin + 4, y); y += 5.5; });
+        y += 6;
+      });
+    }
+
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      doc.setTextColor(140, 135, 128);
+      doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" });
+    }
+
+    doc.save(`Post_Event_Report_${(budget.name || "event").replace(/[^a-z0-9]/gi, "_")}.pdf`);
+  };
+
+  window.generateRoomListPdf = function (eventName, hotelName, guests) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 16;
+    const CREAM = [253, 251, 243];
+    const PRIMARY = [107, 30, 35];
+    const ACCENT = [184, 147, 74];
+    let y = 22;
+
+    const newPage = () => {
+      doc.addPage();
+      doc.setFillColor(CREAM[0], CREAM[1], CREAM[2]);
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
+      y = 22;
+    };
+
+    doc.setFillColor(CREAM[0], CREAM[1], CREAM[2]);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+    doc.setFont("times", "bold"); doc.setFontSize(17);
+    doc.setTextColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.text("Room List", pageWidth / 2, y, { align: "center" });
+    y += 8;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10.5);
+    doc.setTextColor(60, 55, 48);
+    doc.text(`${eventName || "Event"} — ${hotelName}`, pageWidth / 2, y, { align: "center" });
+    y += 10;
+    doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 8;
+
+    doc.setFillColor(PRIMARY[0], PRIMARY[1], PRIMARY[2]);
+    doc.rect(margin, y, pageWidth - margin * 2, 9, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("times", "bold"); doc.setFontSize(9.5);
+    doc.text("GUEST NAME", margin + 4, y + 6.2);
+    doc.text("ROOM #", margin + 90, y + 6.2);
+    doc.text("ROOM TYPE", margin + 120, y + 6.2);
+    doc.text("CHECK-IN / OUT", pageWidth - margin - 4, y + 6.2, { align: "right" });
+    y += 9;
+
+    guests.forEach((g, i) => {
+      if (y > pageHeight - 24) newPage();
+      if (i % 2 === 0) { doc.setFillColor(247, 242, 230); doc.rect(margin, y, pageWidth - margin * 2, 8, "F"); }
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+      doc.setTextColor(45, 40, 35);
+      doc.text(g.name || "", margin + 4, y + 5.5);
+      doc.text(g.roomNumber || "—", margin + 90, y + 5.5);
+      doc.text(g.roomType || "—", margin + 120, y + 5.5);
+      doc.setFontSize(8);
+      doc.text(`${g.checkIn || "?"} / ${g.checkOut || "?"}`, pageWidth - margin - 4, y + 5.5, { align: "right" });
+      y += 8;
+    });
+
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      doc.setTextColor(140, 135, 128);
+      doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" });
+    }
+
+    doc.save(`RoomList_${hotelName.replace(/[^a-z0-9]/gi, "_")}.pdf`);
+  };
+
   window.generateInvoicePdf = function (budget, companySettings, financials, invoiceNumber) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: "mm", format: "a4" });
@@ -819,11 +1113,16 @@ function App() {
   const contractId = new URLSearchParams(window.location.search).get("contract");
   const rsvpId = new URLSearchParams(window.location.search).get("rsvp");
   const portalId = new URLSearchParams(window.location.search).get("portal");
+  const briefId = new URLSearchParams(window.location.search).get("brief");
+  const decorId = new URLSearchParams(window.location.search).get("decor");
+  const estimatorMode = new URLSearchParams(window.location.search).get("estimate");
+  const familyTrackerMode = new URLSearchParams(window.location.search).get("familybudget");
+  const guestPortalId = new URLSearchParams(window.location.search).get("guestportal");
   const [user, setUser] = useState(undefined);
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
-    if (shareId || menuId || testimonialId || contractId || rsvpId || portalId) return;
+    if (shareId || menuId || testimonialId || contractId || rsvpId || portalId || briefId || decorId || estimatorMode || familyTrackerMode || guestPortalId) return;
     const unsub = auth.onAuthStateChanged(u => setUser(u || null));
     return unsub;
   }, []);
@@ -834,6 +1133,11 @@ function App() {
   if (contractId) return <PublicContractView contractId={contractId} />;
   if (rsvpId) return <PublicRsvpView rsvpId={rsvpId} />;
   if (portalId) return <PublicClientPortalView portalId={portalId} />;
+  if (briefId) return <PublicVendorBriefView briefId={briefId} />;
+  if (decorId) return <PublicDecorCatalogView decorId={decorId} />;
+  if (estimatorMode) return <PublicBudgetEstimatorView />;
+  if (familyTrackerMode) return <PublicFamilyBudgetTracker />;
+  if (guestPortalId) return <PublicGuestPortalView guestPortalId={guestPortalId} />;
   if (user === undefined) return <div style={{ padding: 40, color: "#6b1e23" }}>Checking sign-in…</div>;
   if (user === null) return <LoginScreen onError={setAuthError} error={authError} />;
   return <MainApp user={user} />;
@@ -1271,6 +1575,350 @@ function PublicClientPortalView({ portalId }) {
   );
 }
 
+function PublicVendorBriefView({ briefId }) {
+  const [data, setData] = useState(undefined);
+  const [name, setName] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    db.collection("publicVendorBriefs").doc(briefId).get()
+      .then(snap => setData(snap.exists ? snap.data() : null))
+      .catch(() => setData(null));
+  }, [briefId]);
+
+  if (data === undefined) return <div style={{ padding: 40, textAlign: "center" }}>Loading…</div>;
+  if (data === null) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This link is invalid or no longer available.</div>;
+
+  if (confirmed) {
+    return (
+      <div style={{ maxWidth: 500, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+        <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", marginBottom: 10 }}>Confirmed — thank you!</div>
+        <div style={{ fontSize: 14 }}>We've recorded your confirmation.</div>
+      </div>
+    );
+  }
+
+  const handleConfirm = async () => {
+    if (!name.trim()) { setErrorMsg("Please type your name."); return; }
+    setSubmitting(true); setErrorMsg("");
+    try {
+      await db.collection("vendorConfirmations").add({ briefId, name: name.trim(), confirmedAt: Date.now() });
+      setConfirmed(true);
+    } catch (e) { setErrorMsg("Could not submit — please check your connection and try again."); }
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 500, margin: "0 auto", padding: "40px 20px" }}>
+      <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 4 }}>Event Coordination Brief</div>
+      {data.vendorName && <div style={{ fontSize: 13, color: "#8a8071", textAlign: "center", marginBottom: 24 }}>{data.vendorName}</div>}
+      <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+        {data.reportingTime && <div style={{ fontSize: 13, padding: "4px 0" }}><b>Reporting time:</b> {data.reportingTime}</div>}
+        {data.venue && <div style={{ fontSize: 13, padding: "4px 0" }}><b>Venue:</b> {data.venue}</div>}
+        {data.paymentStatus && <div style={{ fontSize: 13, padding: "4px 0" }}><b>Payment status:</b> {data.paymentStatus}</div>}
+        <div style={{ whiteSpace: "pre-wrap", fontSize: 13.5, lineHeight: 1.6, color: "#333", marginTop: 10 }}>{data.text}</div>
+      </div>
+      <div className="beo-card" style={{ padding: 20 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Your Name</label>
+        <input className="beo-input" value={name} onChange={e => setName(e.target.value)} style={{ marginTop: 4, marginBottom: 14 }} />
+        {errorMsg && <div style={{ color: "#c9585d", fontSize: 12.5, marginBottom: 10 }}>{errorMsg}</div>}
+        <button className="beo-btn beo-btn-primary" disabled={submitting} onClick={handleConfirm} style={{ width: "100%", padding: "12px" }}>{submitting ? "Submitting…" : "Confirm — I've received this"}</button>
+      </div>
+    </div>
+  );
+}
+
+function PublicDecorCatalogView({ decorId }) {
+  const [data, setData] = useState(undefined);
+  const [clientName, setClientName] = useState("");
+  const [shortlisted, setShortlisted] = useState([]);
+  const [comment, setComment] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    db.collection("publicDecorCatalogs").doc(decorId).get()
+      .then(snap => setData(snap.exists ? snap.data() : null))
+      .catch(() => setData(null));
+  }, [decorId]);
+
+  if (data === undefined) return <div style={{ padding: 40, textAlign: "center" }}>Loading…</div>;
+  if (data === null) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This link is invalid or no longer available.</div>;
+
+  const toggleShortlist = (name) => {
+    setShortlisted(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
+  };
+
+  if (submitted) {
+    return (
+      <div style={{ maxWidth: 500, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
+        <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", marginBottom: 10 }}>Thank you!</div>
+        <div style={{ fontSize: 14 }}>Your shortlist has been sent to our team.</div>
+      </div>
+    );
+  }
+
+  const handleSubmit = async () => {
+    if (!clientName.trim()) { setErrorMsg("Please enter your name."); return; }
+    setSubmitting(true); setErrorMsg("");
+    try {
+      await db.collection("decorShortlists").add({ catalogId: decorId, clientName: clientName.trim(), shortlisted, comment: comment.trim(), submittedAt: Date.now() });
+      setSubmitted(true);
+    } catch (e) { setErrorMsg("Could not submit — please check your connection and try again."); }
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 700, margin: "0 auto", padding: "40px 20px 80px" }}>
+      <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 4 }}>{data.functionName} — Decor Themes</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", textAlign: "center", marginBottom: 24 }}>Browse the themes below, tap to shortlist your favourites, and leave any comments.</div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 20 }}>
+        {(data.themes || []).map(t => {
+          const isShortlisted = shortlisted.includes(t.name);
+          return (
+            <div key={t.id} onClick={() => toggleShortlist(t.name)} className="beo-card" style={{ padding: 14, cursor: "pointer", border: isShortlisted ? "2px solid #B8934A" : "1px solid #F1EADA" }}>
+              {t.photo && <img src={t.photo.url || t.photo} alt="" style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} onError={e => e.target.style.display = "none"} />}
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
+              {t.description && <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>{t.description}</div>}
+              {(t.costMin || t.costMax) ? <div style={{ fontSize: 11.5, color: "#8a8071", marginTop: 3 }}>₹{t.costMin} – ₹{t.costMax}</div> : null}
+              {isShortlisted && <div style={{ fontSize: 11, color: "#B8934A", fontWeight: 700, marginTop: 6 }}>★ Shortlisted</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="beo-card" style={{ padding: 20 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Your Name</label>
+        <input className="beo-input" value={clientName} onChange={e => setClientName(e.target.value)} style={{ marginTop: 4, marginBottom: 14 }} />
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Comments</label>
+        <textarea className="beo-input" rows={3} value={comment} onChange={e => setComment(e.target.value)} style={{ marginTop: 4, marginBottom: 14, resize: "vertical", fontFamily: "inherit" }} placeholder="Anything you'd like to tell us about your shortlist…" />
+        {errorMsg && <div style={{ color: "#c9585d", fontSize: 12.5, marginBottom: 10 }}>{errorMsg}</div>}
+        <button className="beo-btn beo-btn-primary" disabled={submitting} onClick={handleSubmit} style={{ width: "100%", padding: "12px" }}>{submitting ? "Submitting…" : `Submit Shortlist (${shortlisted.length})`}</button>
+      </div>
+    </div>
+  );
+}
+
+function PublicFamilyBudgetTracker() {
+  const [phone, setPhone] = useState("");
+  const [loadedPhone, setLoadedPhone] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [draft, setDraft] = useState({ category: "", vendor: "", quoted: "", paid: "" });
+  const [loading, setLoading] = useState(false);
+
+  const loadTracker = async () => {
+    const cleaned = phone.trim().replace(/\D/g, "");
+    if (!cleaned) { alert("Enter your phone number first."); return; }
+    setLoading(true);
+    try {
+      const snap = await db.collection("familyBudgetTrackers").doc(cleaned).get();
+      setRows(snap.exists ? (snap.data().rows || []) : []);
+      setLoadedPhone(cleaned);
+    } catch (e) { alert("Could not load: " + e.message); }
+    setLoading(false);
+  };
+
+  const saveRows = async (newRows) => {
+    setRows(newRows);
+    try { await db.collection("familyBudgetTrackers").doc(loadedPhone).set({ rows: newRows, updatedAt: Date.now() }); } catch (e) { /* silent */ }
+  };
+
+  const addRow = () => {
+    if (!draft.category.trim()) return;
+    const newRows = [...rows, { id: uid(), category: draft.category.trim(), vendor: draft.vendor.trim(), quoted: Number(draft.quoted) || 0, paid: Number(draft.paid) || 0 }];
+    saveRows(newRows);
+    setDraft({ category: "", vendor: "", quoted: "", paid: "" });
+  };
+  const removeRow = (id) => saveRows(rows.filter(r => r.id !== id));
+
+  const totalQuoted = rows.reduce((s, r) => s + r.quoted, 0);
+  const totalPaid = rows.reduce((s, r) => s + r.paid, 0);
+
+  if (!loadedPhone) {
+    return (
+      <div style={{ maxWidth: 440, margin: "0 auto", padding: "60px 24px" }}>
+        <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 6 }}>Family Wedding Budget Tracker</div>
+        <div style={{ fontSize: 12.5, color: "#8a8071", textAlign: "center", marginBottom: 20 }}>Track spending across every vendor for your wedding, all in one place. Free to use.</div>
+        <div className="beo-card" style={{ padding: 20 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Your Phone Number</label>
+          <div style={{ fontSize: 11, color: "#a39a89", marginBottom: 6 }}>Used to save and reload your tracker — come back to this same page any time.</div>
+          <input className="beo-input" value={phone} onChange={e => setPhone(e.target.value)} style={{ marginBottom: 14 }} />
+          <button className="beo-btn beo-btn-primary" disabled={loading} onClick={loadTracker} style={{ width: "100%", padding: "12px" }}>{loading ? "Loading…" : "Open My Tracker"}</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 700, margin: "0 auto", padding: "40px 20px 80px" }}>
+      <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 20 }}>Family Wedding Budget Tracker</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+        <div className="beo-card" style={{ padding: 16, textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: "#8a8071", textTransform: "uppercase" }}>Total Quoted</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23" }}>₹{totalQuoted.toLocaleString("en-IN")}</div>
+        </div>
+        <div className="beo-card" style={{ padding: 16, textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: "#8a8071", textTransform: "uppercase" }}>Total Paid</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#2E7D32" }}>₹{totalPaid.toLocaleString("en-IN")}</div>
+        </div>
+      </div>
+      <div className="beo-card" style={{ padding: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 90px 24px", gap: 6, marginBottom: 10 }}>
+          <input className="beo-input" placeholder="Category (e.g. Catering)" value={draft.category} onChange={e => setDraft(p => ({ ...p, category: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+          <input className="beo-input" placeholder="Vendor name" value={draft.vendor} onChange={e => setDraft(p => ({ ...p, vendor: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+          <input className="beo-input" type="number" placeholder="Quoted ₹" value={draft.quoted} onChange={e => setDraft(p => ({ ...p, quoted: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+          <input className="beo-input" type="number" placeholder="Paid ₹" value={draft.paid} onChange={e => setDraft(p => ({ ...p, paid: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+          <button className="beo-btn beo-btn-primary" style={{ padding: "6px 8px" }} onClick={addRow}>＋</button>
+        </div>
+        {rows.length === 0 ? <div style={{ color: "#a39a89", fontSize: 12.5 }}>No vendors added yet.</div> : rows.map(r => (
+          <div key={r.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+            <div>{r.category}{r.vendor ? ` — ${r.vendor}` : ""}</div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <span>₹{r.quoted.toLocaleString("en-IN")} quoted, ₹{r.paid.toLocaleString("en-IN")} paid</span>
+              <span onClick={() => removeRow(r.id)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PublicBudgetEstimatorView() {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [cityTier, setCityTier] = useState("Tier 2");
+  const [guestCount, setGuestCount] = useState("300");
+  const [functionsCount, setFunctionsCount] = useState("3-4");
+  const [style, setStyle] = useState("Mid-range");
+  const [result, setResult] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const PER_GUEST_BASE = { "Tier 1": 3500, "Tier 2": 2200, "Tier 3": 1400 };
+  const STYLE_MULT = { "Simple": 0.6, "Mid-range": 1, "Premium": 1.7, "Luxury": 2.8 };
+  const FUNC_MULT = { "1-2": 0.7, "3-4": 1, "5+": 1.4 };
+
+  const calculate = async () => {
+    const guests = Number(guestCount) || 0;
+    const base = PER_GUEST_BASE[cityTier] * STYLE_MULT[style] * FUNC_MULT[functionsCount] * guests;
+    const low = Math.round((base * 0.8) / 10000) * 10000;
+    const high = Math.round((base * 1.25) / 10000) * 10000;
+    setResult({ low, high });
+    if (name.trim() || phone.trim()) {
+      setSubmitting(true);
+      try {
+        await db.collection("budgetEstimateLeads").add({ name: name.trim(), phone: phone.trim(), cityTier, guestCount: guests, functionsCount, style, estimateLow: low, estimateHigh: high, submittedAt: Date.now() });
+      } catch (e) { /* silent — estimate still shown either way */ }
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 500, margin: "0 auto", padding: "40px 20px 80px" }}>
+      <div className="beo-serif" style={{ fontSize: 24, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 6 }}>Wedding Budget Estimator</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", textAlign: "center", marginBottom: 20 }}>Get a realistic budget range in seconds — free, no obligation.</div>
+      <div className="beo-card" style={{ padding: 20 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Your Name (optional)</label>
+        <input className="beo-input" value={name} onChange={e => setName(e.target.value)} style={{ marginTop: 4, marginBottom: 12 }} />
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Phone (optional — so we can follow up)</label>
+        <input className="beo-input" value={phone} onChange={e => setPhone(e.target.value)} style={{ marginTop: 4, marginBottom: 12 }} />
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>City</label>
+        <select className="beo-input" value={cityTier} onChange={e => setCityTier(e.target.value)} style={{ marginTop: 4, marginBottom: 12 }}>
+          <option value="Tier 1">Metro (Delhi, Mumbai, Bangalore, etc.)</option>
+          <option value="Tier 2">Tier 2 city (Jaipur, Lucknow, Mathura, etc.)</option>
+          <option value="Tier 3">Smaller town</option>
+        </select>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Guest Count</label>
+        <input className="beo-input" type="number" value={guestCount} onChange={e => setGuestCount(e.target.value)} style={{ marginTop: 4, marginBottom: 12 }} />
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Number of Functions</label>
+        <select className="beo-input" value={functionsCount} onChange={e => setFunctionsCount(e.target.value)} style={{ marginTop: 4, marginBottom: 12 }}>
+          <option value="1-2">1-2 (just the wedding day)</option>
+          <option value="3-4">3-4 (Haldi, Sangeet, Wedding, Reception)</option>
+          <option value="5+">5+ (full multi-day celebration)</option>
+        </select>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Style</label>
+        <select className="beo-input" value={style} onChange={e => setStyle(e.target.value)} style={{ marginTop: 4, marginBottom: 16 }}>
+          <option>Simple</option><option>Mid-range</option><option>Premium</option><option>Luxury</option>
+        </select>
+        <button className="beo-btn beo-btn-primary" disabled={submitting} onClick={calculate} style={{ width: "100%", padding: "12px" }}>{submitting ? "..." : "Get My Estimate"}</button>
+        {result && (
+          <div style={{ marginTop: 18, padding: 16, background: "#FAF3E3", borderRadius: 8, textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: "#8a8071", textTransform: "uppercase" }}>Estimated Budget Range</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginTop: 4 }}>₹{result.low.toLocaleString("en-IN")} – ₹{result.high.toLocaleString("en-IN")}</div>
+            <div style={{ fontSize: 11, color: "#a39a89", marginTop: 8 }}>This is a rough planning estimate, not a quote. Talk to us for an exact costing.</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PublicGuestPortalView({ guestPortalId }) {
+  const [data, setData] = useState(undefined);
+  const [search, setSearch] = useState("");
+  const [selectedGuest, setSelectedGuest] = useState(null);
+
+  useEffect(() => {
+    db.collection("publicGuestPortals").doc(guestPortalId).get()
+      .then(snap => setData(snap.exists ? snap.data() : null))
+      .catch(() => setData(null));
+  }, [guestPortalId]);
+
+  if (data === undefined) return <div style={{ padding: 40, textAlign: "center" }}>Loading…</div>;
+  if (data === null) return <div style={{ padding: 40, textAlign: "center", color: "#a39a89" }}>This link is invalid or no longer available.</div>;
+
+  const q = search.trim().toLowerCase();
+  const matches = q ? (data.guests || []).filter(g => g.name.toLowerCase().includes(q)) : [];
+
+  return (
+    <div style={{ maxWidth: 600, margin: "0 auto", padding: "40px 20px 80px" }}>
+      <div className="beo-serif" style={{ fontSize: 26, fontWeight: 700, color: "#6B1E23", textAlign: "center", marginBottom: 4 }}>{data.budgetName}</div>
+      {data.date && <div style={{ fontSize: 13, color: "#8a8071", textAlign: "center", marginBottom: 24 }}>{data.date}</div>}
+
+      {!selectedGuest ? (
+        <div className="beo-card" style={{ padding: 20 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "#8a8071" }}>Find your name</label>
+          <input className="beo-input" value={search} onChange={e => setSearch(e.target.value)} style={{ marginTop: 4, marginBottom: 14 }} placeholder="Type your name…" />
+          {matches.length > 0 && matches.map((g, i) => (
+            <div key={i} onClick={() => setSelectedGuest(g)} style={{ padding: "10px 8px", cursor: "pointer", borderTop: "1px solid #F1EADA", fontSize: 14 }}>{g.name}</div>
+          ))}
+          {q && matches.length === 0 && <div style={{ color: "#a39a89", fontSize: 13 }}>No match found — check the spelling, or ask the family directly.</div>}
+        </div>
+      ) : (
+        <React.Fragment>
+          <button className="beo-btn beo-btn-ghost" onClick={() => setSelectedGuest(null)} style={{ marginBottom: 14 }}>← Search again</button>
+          <div className="beo-card" style={{ padding: 20, marginBottom: 16 }}>
+            <div className="beo-serif" style={{ fontSize: 18, fontWeight: 700, color: "#6B1E23", marginBottom: 12 }}>Welcome, {selectedGuest.name}!</div>
+            {selectedGuest.hotelName && <div style={{ fontSize: 13, padding: "4px 0" }}><b>Hotel:</b> {selectedGuest.hotelName}</div>}
+            {selectedGuest.roomNumber && <div style={{ fontSize: 13, padding: "4px 0" }}><b>Room:</b> {selectedGuest.roomNumber}</div>}
+            {selectedGuest.checkIn && <div style={{ fontSize: 13, padding: "4px 0" }}><b>Check-in:</b> {selectedGuest.checkIn}</div>}
+            {selectedGuest.checkOut && <div style={{ fontSize: 13, padding: "4px 0" }}><b>Check-out:</b> {selectedGuest.checkOut}</div>}
+            {selectedGuest.arrivalMode && <div style={{ fontSize: 13, padding: "4px 0" }}><b>Arrival:</b> {selectedGuest.arrivalMode}{selectedGuest.arrivalDetails ? ` — ${selectedGuest.arrivalDetails}` : ""}</div>}
+            {selectedGuest.dressCodeNote && <div style={{ fontSize: 13, padding: "4px 0" }}><b>Dress Code:</b> {selectedGuest.dressCodeNote}</div>}
+          </div>
+          {(data.schedule || []).length > 0 && (
+            <div className="beo-card" style={{ padding: 20 }}>
+              <div className="beo-serif" style={{ fontSize: 18, fontWeight: 700, color: "#6B1E23", marginBottom: 12 }}>Function Schedule</div>
+              {data.schedule.map((d, i) => (
+                <div key={i} style={{ marginBottom: 10 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{d.label} {d.date ? `— ${d.date}` : ""}</div>
+                  {(d.events || []).map((e, j) => (
+                    <div key={j} style={{ fontSize: 12.5, color: "#5a5348", paddingLeft: 10 }}>{e.time ? `${e.time} — ` : ""}{e.name}</div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </React.Fragment>
+      )}
+    </div>
+  );
+}
+
 function LoginScreen({ onError, error }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1319,6 +1967,10 @@ function MainApp({ user }) {
   const [vendorCategories, setVendorCategories] = useState(["Anchor", "Music Band", "Live Band", "Singer", "Other Artist", "Vendor", "Other"]);
   const [staffMembers, setStaffMembers] = useState([]);
   const [businessExpenses, setBusinessExpenses] = useState([]);
+  const [giftingCampaigns, setGiftingCampaigns] = useState([]);
+  const [rfps, setRfps] = useState([]);
+  const [sponsorEvents, setSponsorEvents] = useState([]);
+  const [decorAssets, setDecorAssets] = useState([]);
   const [vaultDocuments, setVaultDocuments] = useState([]);
   const [businessDocuments, setBusinessDocuments] = useState([]);
   const [activeVendorId, setActiveVendorId] = useState(null);
@@ -1333,6 +1985,7 @@ function MainApp({ user }) {
   const [corpQuotes, setCorpQuotes] = useState([]);
   const [tab, setTab] = useState(isAdmin ? "dashboard" : "hotels");
   const [activeBudgetId, setActiveBudgetId] = useState(null);
+  const [guestManagerBudgetId, setGuestManagerBudgetId] = useState(null);
   const [activeCityId, setActiveCityId] = useState(null);
   const [activeHotelId, setActiveHotelId] = useState(null);
   const [activeQuoteId, setActiveQuoteId] = useState(null);
@@ -1365,6 +2018,14 @@ function MainApp({ user }) {
       else setBusinessExpenses([]);
       if (data && data.vaultDocuments) setVaultDocuments(data.vaultDocuments);
       else setVaultDocuments([]);
+      if (data && data.giftingCampaigns) setGiftingCampaigns(data.giftingCampaigns);
+      else setGiftingCampaigns([]);
+      if (data && data.rfps) setRfps(data.rfps);
+      else setRfps([]);
+      if (data && data.sponsorEvents) setSponsorEvents(data.sponsorEvents);
+      else setSponsorEvents([]);
+      if (data && data.decorAssets) setDecorAssets(data.decorAssets);
+      else setDecorAssets([]);
       if (data && data.ideas) setIdeas(data.ideas);
       else setIdeas([]);
       if (data && data.decorFunctions) setDecorFunctions(data.decorFunctions);
@@ -1439,10 +2100,10 @@ function MainApp({ user }) {
     if (!loaded) return;
     if (skipNextSharedSave.current) { skipNextSharedSave.current = false; return; }
     setSyncStatus("syncing");
-    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, vaultDocuments, ideas, decorFunctions, projects, customerLeads }, { merge: true })
+    sharedDocRef.set({ cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, vaultDocuments, giftingCampaigns, rfps, sponsorEvents, decorAssets, ideas, decorFunctions, projects, customerLeads }, { merge: true })
       .then(() => setSyncStatus("synced"))
       .catch(e => { console.error(e); setSyncStatus("error"); });
-  }, [cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, vaultDocuments, ideas, decorFunctions, projects, customerLeads]);
+  }, [cities, corpQuotes, activityLog, vendors, vendorCategories, staffMembers, businessExpenses, vaultDocuments, giftingCampaigns, rfps, sponsorEvents, decorAssets, ideas, decorFunctions, projects, customerLeads]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const dueFollowUps = (budgets || []).filter(b => b.followUpDate && b.followUpDate <= todayStr && b.status !== "Converted");
@@ -1575,6 +2236,10 @@ function MainApp({ user }) {
           <SidebarIcon expanded={sidebarExpanded} label="Staff" title="Staff" active={tab === "staff"} onClick={() => setTab("staff")}>🧑‍💼</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Expenses & P&L" title="Expenses & P&L" active={tab === "expenses"} onClick={() => setTab("expenses")}>💸</SidebarIcon>
           <SidebarIcon expanded={sidebarExpanded} label="Document Vault" title="Document Vault" active={tab === "vault"} onClick={() => setTab("vault")}>🗄️</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Corporate Gifting" title="Corporate Gifting" active={tab === "gifting"} onClick={() => setTab("gifting")}>🎁</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Hotel RFP" title="Hotel RFP & Quote Comparison" active={tab === "rfp"} onClick={() => setTab("rfp")}>📨</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Sponsors & Exhibitors" title="Sponsors & Exhibitors" active={tab === "sponsors"} onClick={() => setTab("sponsors")}>🤝</SidebarIcon>
+          <SidebarIcon expanded={sidebarExpanded} label="Decor Stock" title="Decor Stock — Dispatch & Return" active={tab === "decorstock"} onClick={() => setTab("decorstock")}>📦</SidebarIcon>
           <div style={{ flex: 1 }}></div>
           <div style={{ position: "relative", marginBottom: 16 }}>
             <button
@@ -1781,6 +2446,7 @@ function MainApp({ user }) {
             setCompanySettings={setCompanySettings}
             onBack={() => setTab("budgets")}
             onOpenBudget={openBudget}
+            onOpenGuestManager={(id) => { setGuestManagerBudgetId(id); setTab("guestManager"); }}
             onChange={(updated) => setBudgets(prev => prev.map(b => b.id === updated.id ? updated : b))}
           />
         )}
@@ -1902,6 +2568,18 @@ function MainApp({ user }) {
         {isAdmin && tab === "staff" && <StaffView staffMembers={staffMembers} setStaffMembers={setStaffMembers} logActivity={logActivity} />}
         {isAdmin && tab === "expenses" && <ExpensesView businessExpenses={businessExpenses} setBusinessExpenses={setBusinessExpenses} budgets={budgets} logActivity={logActivity} />}
         {isAdmin && tab === "vault" && <DocumentVaultView vaultDocuments={vaultDocuments} setVaultDocuments={setVaultDocuments} logActivity={logActivity} />}
+        {isAdmin && tab === "gifting" && <CorporateGiftingView giftingCampaigns={giftingCampaigns} setGiftingCampaigns={setGiftingCampaigns} logActivity={logActivity} />}
+        {isAdmin && tab === "rfp" && <HotelRfpView rfps={rfps} setRfps={setRfps} cities={cities} logActivity={logActivity} />}
+        {isAdmin && tab === "sponsors" && <SponsorExhibitorView sponsorEvents={sponsorEvents} setSponsorEvents={setSponsorEvents} logActivity={logActivity} />}
+        {isAdmin && tab === "decorstock" && <DecorStockView decorAssets={decorAssets} setDecorAssets={setDecorAssets} budgets={budgets} logActivity={logActivity} />}
+        {tab === "guestManager" && guestManagerBudgetId && (
+          <GuestRoomManagerView
+            budget={budgets.find(b => b.id === guestManagerBudgetId)}
+            cities={cities}
+            onChange={(updated) => setBudgets(prev => prev.map(b => b.id === updated.id ? updated : b))}
+            onBack={() => { setTab("builder"); setActiveBudgetId(guestManagerBudgetId); }}
+          />
+        )}
       </div>
       </div>
       {companySettingsOpen && (
@@ -2451,7 +3129,7 @@ function BudgetsListView({ budgets, setBudgets, onOpen, onCreate }) {
   );
 }
 
-function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentItems, bundles, companySettings, setCompanySettings, onBack, onOpenBudget, onChange }) {
+function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentItems, bundles, companySettings, setCompanySettings, onBack, onOpenBudget, onOpenGuestManager, onChange }) {
   const [search, setSearch] = useState("");
   const [activeDayId, setActiveDayId] = useState(null);
   const [activeEventId, setActiveEventId] = useState(null);
@@ -2471,6 +3149,7 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
   const [contractAcceptances, setContractAcceptances] = useState([]);
   const [rsvps, setRsvps] = useState([]);
   const [milestoneDraft, setMilestoneDraft] = useState({ task: "", dueDate: "" });
+  const [giftDraft, setGiftDraft] = useState({ giver: "", item: "", note: "" });
   const [actualCostDraft, setActualCostDraft] = useState({ category: "", amount: "" });
   const migratedRef = useRef(false);
 
@@ -2595,6 +3274,14 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
   };
   const toggleMilestone = (id) => update({ milestones: milestones.map(m => m.id === id ? { ...m, done: !m.done } : m) });
   const removeMilestone = (id) => update({ milestones: milestones.filter(m => m.id !== id) });
+
+  const giftRegister = budget.giftRegister || [];
+  const addGift = () => {
+    if (!giftDraft.giver.trim() || !giftDraft.item.trim()) return;
+    update({ giftRegister: [...giftRegister, { id: uid(), ...giftDraft, date: new Date().toISOString().slice(0, 10) }] });
+    setGiftDraft({ giver: "", item: "", note: "" });
+  };
+  const removeGift = (id) => update({ giftRegister: giftRegister.filter(g => g.id !== id) });
 
   const actualCosts = budget.actualCosts || [];
   const addActualCost = () => {
@@ -2898,6 +3585,10 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
     window.generateInvoicePdf(budget, cs, financials, invoiceNumber);
   };
 
+  const exportPostEventReport = () => {
+    window.generatePostEventReportPdf(budget, actualCosts, actualTotal, grandTotal, testimonials, companySettings || {});
+  };
+
   return (
     <div>
       <button className="beo-btn beo-btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>← Back to budgets</button>
@@ -2916,6 +3607,8 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
         </div>
         <button className="beo-btn beo-btn-gold" onClick={exportQuotation}>📄 Export Quotation</button>
         <button className="beo-btn beo-btn-ghost" onClick={exportInvoice}>🧾 Export Tax Invoice</button>
+        <button className="beo-btn beo-btn-ghost" onClick={exportPostEventReport}>📊 Post-Event Report</button>
+        <button className="beo-btn beo-btn-gold" onClick={() => onOpenGuestManager && onOpenGuestManager(budget.id)}>🏨 Guest & Room Manager</button>
         <button
           className="beo-btn"
           disabled={sharing}
@@ -3223,6 +3916,24 @@ function BudgetBuilder({ budget, allBudgets, categories, recentItems, setRecentI
             </div>
           );
         })}
+      </div>
+
+      <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Shagun / Gift Register</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 24px", gap: 6, marginBottom: 8 }}>
+          <input className="beo-input" placeholder="Who gave it" value={giftDraft.giver} onChange={e => setGiftDraft(p => ({ ...p, giver: e.target.value }))} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <input className="beo-input" placeholder="What (e.g. ₹5,100 cash)" value={giftDraft.item} onChange={e => setGiftDraft(p => ({ ...p, item: e.target.value }))} onKeyDown={e => e.key === "Enter" && addGift()} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <input className="beo-input" placeholder="Note (optional)" value={giftDraft.note} onChange={e => setGiftDraft(p => ({ ...p, note: e.target.value }))} onKeyDown={e => e.key === "Enter" && addGift()} style={{ fontSize: 12.5, padding: "5px 6px" }} />
+          <button className="beo-btn beo-btn-primary" style={{ padding: "5px 8px" }} onClick={addGift}>＋</button>
+        </div>
+        {giftRegister.length === 0 ? (
+          <div style={{ color: "#a39a89", fontSize: 12.5 }}>No entries yet.</div>
+        ) : giftRegister.map(g => (
+          <div key={g.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 4px", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+            <div><b>{g.giver}</b> — {g.item}{g.note ? ` (${g.note})` : ""} <span style={{ color: "#8a8071", fontSize: 11 }}>· {g.date}</span></div>
+            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeGift(g.id)}>🗑</span>
+          </div>
+        ))}
       </div>
 
       <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
@@ -4195,6 +4906,18 @@ function VendorDetail({ vendor, vendorCategories, onBack, onChange }) {
   const [newPaymentAmount, setNewPaymentAmount] = useState("");
   const [newPaymentNote, setNewPaymentNote] = useState("");
   const [newPaymentDue, setNewPaymentDue] = useState("");
+  const [briefDraft, setBriefDraft] = useState({ text: "", reportingTime: "", venue: "" });
+  const [confirmations, setConfirmations] = useState([]);
+
+  useEffect(() => {
+    if (!vendor || !vendor.briefShareId) return;
+    const unsub = db.collection("vendorConfirmations").where("briefId", "==", vendor.briefShareId).onSnapshot(snap => {
+      const list = [];
+      snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+      setConfirmations(list);
+    });
+    return unsub;
+  }, [vendor && vendor.briefShareId]);
 
   if (!vendor) return null;
   const update = (patch) => onChange({ ...vendor, ...patch });
@@ -4214,6 +4937,21 @@ function VendorDetail({ vendor, vendorCategories, onBack, onChange }) {
   const togglePaymentPaid = (id) => update({ payments: payments.map(p => p.id === id ? { ...p, paid: !p.paid } : p) });
   const removePayment = (id) => update({ payments: payments.filter(p => p.id !== id) });
   const owedTotal = payments.filter(p => !p.paid).reduce((s, p) => s + p.amount, 0);
+
+  const sendCoordinationBrief = async () => {
+    if (!briefDraft.text.trim()) { alert("Write the brief text first."); return; }
+    const id = vendor.briefShareId || uid();
+    try {
+      await db.collection("publicVendorBriefs").doc(id).set({
+        vendorName: vendor.name || "", text: briefDraft.text, reportingTime: briefDraft.reportingTime, venue: briefDraft.venue,
+        paymentStatus: owedTotal > 0 ? `${inr(owedTotal)} pending` : "No pending payment", updatedAt: Date.now()
+      });
+      if (!vendor.briefShareId) update({ briefShareId: id });
+      const url = `${window.location.origin}${window.location.pathname}?brief=${id}`;
+      navigator.clipboard.writeText(url);
+      alert("Coordination link copied:\n\n" + url);
+    } catch (e) { alert("Could not create link: " + e.message); }
+  };
 
   const addPhone = () => update({ phones: [...phones, { id: uid(), name: "", phone: "" }] });
   const updatePhone = (id, patch) => update({ phones: phones.map(p => p.id === id ? { ...p, ...patch } : p) });
@@ -4430,6 +5168,22 @@ function VendorDetail({ vendor, vendorCategories, onBack, onChange }) {
               </div>
             ))}
           </div>
+
+          <div className="beo-card" style={{ padding: 20, marginTop: 16 }}>
+            <div className="beo-serif" style={{ fontSize: 20, fontWeight: 700, color: "#6B1E23", marginBottom: 12 }}>Coordination Brief</div>
+            <div style={{ fontSize: 11.5, color: "#8a8071", marginBottom: 10 }}>Send this vendor a link with their brief, reporting time, venue, and payment status — they confirm through the link so nobody can say "I was never told."</div>
+            <textarea className="beo-input" rows={3} placeholder="Brief — what's expected of them for this event" value={briefDraft.text} onChange={e => setBriefDraft(p => ({ ...p, text: e.target.value }))} style={{ marginBottom: 8, resize: "vertical", fontFamily: "inherit" }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+              <input className="beo-input" placeholder="Reporting time (e.g. 4 PM, 12 Mar)" value={briefDraft.reportingTime} onChange={e => setBriefDraft(p => ({ ...p, reportingTime: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+              <input className="beo-input" placeholder="Venue" value={briefDraft.venue} onChange={e => setBriefDraft(p => ({ ...p, venue: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+            </div>
+            <button className="beo-btn beo-btn-primary" onClick={sendCoordinationBrief} style={{ fontSize: 12.5, marginBottom: 12 }}>🔗 Get Coordination Link</button>
+            {confirmations.length === 0 ? (
+              <div style={{ color: "#a39a89", fontSize: 12.5 }}>Not yet confirmed by the vendor.</div>
+            ) : confirmations.map(c => (
+              <div key={c.id} style={{ fontSize: 12.5, color: "#2E7D32", padding: "4px 0" }}>✔ Confirmed by {c.name || vendor.name} on {c.confirmedAt ? new Date(c.confirmedAt).toLocaleString("en-IN") : ""}</div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -4563,8 +5317,21 @@ function DecorView({ decorFunctions, setDecorFunctions, onOpenTheme, logActivity
   const [openFuncId, setOpenFuncId] = useState(decorFunctions[0]?.id || null);
   const [newFuncName, setNewFuncName] = useState("");
   const [newThemeName, setNewThemeName] = useState("");
+  const [shortlists, setShortlists] = useState([]);
 
   useEffect(() => { if ((!openFuncId || !decorFunctions.find(f => f.id === openFuncId)) && decorFunctions[0]) setOpenFuncId(decorFunctions[0].id); }, [decorFunctions]);
+
+  const openFunc = decorFunctions.find(f => f.id === openFuncId);
+
+  useEffect(() => {
+    if (!openFunc || !openFunc.shareId) { setShortlists([]); return; }
+    const unsub = db.collection("decorShortlists").where("catalogId", "==", openFunc.shareId).onSnapshot(snap => {
+      const list = [];
+      snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+      setShortlists(list);
+    });
+    return unsub;
+  }, [openFunc && openFunc.shareId]);
 
   const addFunction = () => {
     if (!newFuncName.trim()) return;
@@ -4584,7 +5351,21 @@ function DecorView({ decorFunctions, setDecorFunctions, onOpenTheme, logActivity
   };
   const removeTheme = (funcId, themeId) => setDecorFunctions(prev => prev.map(f => f.id === funcId ? { ...f, themes: f.themes.filter(t => t.id !== themeId) } : f));
 
-  const openFunc = decorFunctions.find(f => f.id === openFuncId);
+  const getOrCreateDecorLink = async () => {
+    if (!openFunc || openFunc.themes.length === 0) { alert("Add at least one theme first."); return; }
+    const id = openFunc.shareId || uid();
+    try {
+      await db.collection("publicDecorCatalogs").doc(id).set({
+        functionName: openFunc.name,
+        themes: openFunc.themes.map(t => ({ id: t.id, name: t.name, description: t.description, costMin: t.costMin, costMax: t.costMax, photo: (t.media || []).find(m => m.type === "image") || null })),
+        updatedAt: Date.now()
+      });
+      if (!openFunc.shareId) setDecorFunctions(prev => prev.map(f => f.id === openFunc.id ? { ...f, shareId: id } : f));
+      const url = `${window.location.origin}${window.location.pathname}?decor=${id}`;
+      navigator.clipboard.writeText(url);
+      alert("Client picking link copied:\n\n" + url);
+    } catch (e) { alert("Could not create link: " + e.message); }
+  };
 
   return (
     <div className="two-col">
@@ -4604,7 +5385,10 @@ function DecorView({ decorFunctions, setDecorFunctions, onOpenTheme, logActivity
       <div className="beo-card" style={{ padding: 20 }}>
         {!openFunc ? <div style={{ color: "#a39a89" }}>Create a function folder to start adding themes.</div> : (
           <React.Fragment>
-            <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>{openFunc.name}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+              <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23" }}>{openFunc.name}</div>
+              <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={getOrCreateDecorLink}>🔗 Get Client Picking Link</button>
+            </div>
             {openFunc.themes.length === 0 && <div style={{ color: "#a39a89", fontSize: 14, marginBottom: 14 }}>No themes yet in this function.</div>}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12, marginBottom: 18 }}>
               {openFunc.themes.map(t => (
@@ -4622,6 +5406,17 @@ function DecorView({ decorFunctions, setDecorFunctions, onOpenTheme, logActivity
               <input className="beo-input" placeholder="New theme name (e.g. Brij Theme)" value={newThemeName} onChange={e => setNewThemeName(e.target.value)} onKeyDown={e => e.key === "Enter" && addTheme(openFunc.id)} />
               <button className="beo-btn beo-btn-primary" onClick={() => addTheme(openFunc.id)}>＋ Add theme</button>
             </div>
+            {shortlists.length > 0 && (
+              <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px dashed #E4DCC8" }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Client Shortlists</div>
+                {shortlists.map(sl => (
+                  <div key={sl.id} style={{ padding: "8px 0", borderTop: "1px solid #F1EADA", fontSize: 12.5 }}>
+                    <b>{sl.clientName || "Unnamed"}</b> shortlisted: {(sl.shortlisted || []).join(", ") || "none"}
+                    {sl.comment && <div style={{ fontStyle: "italic", color: "#6B1E23", marginTop: 3 }}>"{sl.comment}"</div>}
+                  </div>
+                ))}
+              </div>
+            )}
           </React.Fragment>
         )}
       </div>
@@ -5493,6 +6288,8 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
   const [priceDraft, setPriceDraft] = useState({});
   const [nameHiDraft, setNameHiDraft] = useState({});
   const [translatingSection, setTranslatingSection] = useState(null);
+  const [ingredientEditorFor, setIngredientEditorFor] = useState(null);
+  const [ingredientDraft, setIngredientDraft] = useState({ name: "", qtyPer100: "", unit: "kg" });
   const [bulkDraft, setBulkDraft] = useState({});
   const [bulkOpenFor, setBulkOpenFor] = useState(null);
   const [sharing, setSharing] = useState(false);
@@ -5550,6 +6347,27 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
   };
   const updateItemHindi = (sectionId, itemId, nameHi) => {
     update({ sections: sections.map(s => s.id === sectionId ? { ...s, items: s.items.map(i => i.id === itemId ? { ...i, nameHi } : i) } : s) });
+  };
+
+  const addIngredient = (sectionId, itemId) => {
+    const name = ingredientDraft.name.trim();
+    const qty = Number(ingredientDraft.qtyPer100) || 0;
+    if (!name || qty <= 0) return;
+    update({
+      sections: sections.map(s => s.id === sectionId ? {
+        ...s, items: s.items.map(i => i.id === itemId ? {
+          ...i, ingredients: [...(i.ingredients || []), { id: uid(), name, qtyPer100: qty, unit: ingredientDraft.unit }]
+        } : i)
+      } : s)
+    });
+    setIngredientDraft({ name: "", qtyPer100: "", unit: ingredientDraft.unit });
+  };
+  const removeIngredient = (sectionId, itemId, ingId) => {
+    update({
+      sections: sections.map(s => s.id === sectionId ? {
+        ...s, items: s.items.map(i => i.id === itemId ? { ...i, ingredients: (i.ingredients || []).filter(g => g.id !== ingId) } : i)
+      } : s)
+    });
   };
 
   const autoTranslateSection = async (section) => {
@@ -5621,6 +6439,36 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
 
   const paxCount = Number(template.paxCount) || 0;
   const liveCounterTotal = sections.filter(s => s.isLiveCounter).reduce((sum, s) => sum + s.items.reduce((s2, it) => s2 + (Number(it.price) || 0) * paxCount, 0), 0);
+
+  const generateProcurementSheet = (response) => {
+    if (!paxCount) { alert("Set a Pax count on this template first — the calculator scales ingredients from it."); return; }
+    const kitchenItems = [];
+    const ingredientTotals = {};
+    let anyIngredientsFound = false;
+    Object.entries(response.selections || {}).forEach(([sectionName, items]) => {
+      const section = sections.find(s => s.name === sectionName);
+      items.forEach(itemName => {
+        const matchedItem = section && section.items.find(i => i.name === itemName);
+        kitchenItems.push({ section: sectionName, name: itemName });
+        if (matchedItem && matchedItem.ingredients && matchedItem.ingredients.length > 0) {
+          anyIngredientsFound = true;
+          matchedItem.ingredients.forEach(ing => {
+            const scaled = (ing.qtyPer100 / 100) * paxCount;
+            const key = `${ing.name}|${ing.unit}`;
+            ingredientTotals[key] = (ingredientTotals[key] || 0) + scaled;
+          });
+        }
+      });
+    });
+    const shoppingList = Object.entries(ingredientTotals).map(([key, qty]) => {
+      const [name, unit] = key.split("|");
+      return { name, qty: Math.round(qty * 100) / 100, unit };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+    if (!anyIngredientsFound) {
+      alert("None of this client's selected items have ingredient ratios saved yet. Click the 🥘 button next to an item to add its ingredients (per 100 guests), then try again.");
+    }
+    window.generateProcurementPdf(response, template, paxCount, shoppingList, kitchenItems, companySettings);
+  };
 
   const getOrCreateShareLink = async () => {
     setSharing(true);
@@ -5708,13 +6556,36 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
           {s.items.length === 0 ? (
             <div style={{ color: "#a39a89", fontSize: 12.5, marginBottom: 10 }}>No items yet.</div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 24px", gap: 8, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 60px 24px", gap: 8, marginBottom: 10 }}>
               {s.items.map(it => (
                 <React.Fragment key={it.id}>
                   <div style={{ fontSize: 13, padding: "4px 0" }}>{it.name}</div>
                   <input className="beo-input" placeholder="Hindi name (optional)" value={it.nameHi || ""} onChange={e => updateItemHindi(s.id, it.id, e.target.value)} style={{ fontSize: 12.5, padding: "5px 8px" }} />
                   <div style={{ fontSize: 12, color: "#8a8071" }}>{it.price ? `${inr(it.price)}${s.isLiveCounter ? "/pax" : ""}` : "—"}</div>
+                  <span onClick={() => setIngredientEditorFor(ingredientEditorFor === it.id ? null : it.id)} style={{ fontSize: 11, color: (it.ingredients || []).length > 0 ? "#2E7D32" : "#8a8071", cursor: "pointer", whiteSpace: "nowrap" }}>
+                    🥘 {(it.ingredients || []).length > 0 ? `(${it.ingredients.length})` : "Add"}
+                  </span>
                   <span onClick={() => removeItem(s.id, it.id)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span>
+                  {ingredientEditorFor === it.id && (
+                    <div style={{ gridColumn: "1 / -1", background: "#FAF6EE", borderRadius: 6, padding: 10, marginTop: -4, marginBottom: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#8a8071", marginBottom: 6 }}>Ingredients needed per 100 guests (used by the Procurement Calculator)</div>
+                      {(it.ingredients || []).map(g => (
+                        <div key={g.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0" }}>
+                          <span>{g.name} — {g.qtyPer100} {g.unit} per 100 pax</span>
+                          <span onClick={() => removeIngredient(s.id, it.id, g.id)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span>
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                        <input className="beo-input" placeholder="Ingredient (e.g. Paneer)" value={ingredientDraft.name} onChange={e => setIngredientDraft(p => ({ ...p, name: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px", flex: 2 }} />
+                        <input className="beo-input" type="number" placeholder="Qty" value={ingredientDraft.qtyPer100} onChange={e => setIngredientDraft(p => ({ ...p, qtyPer100: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px", flex: 1 }} />
+                        <select className="beo-input" value={ingredientDraft.unit} onChange={e => setIngredientDraft(p => ({ ...p, unit: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px", flex: 1 }}>
+                          <option value="kg">kg</option><option value="litre">litre</option><option value="pieces">pieces</option><option value="grams">grams</option>
+                        </select>
+                        <button className="beo-btn beo-btn-primary" style={{ fontSize: 11, padding: "5px 10px" }} onClick={() => addIngredient(s.id, it.id)}>＋</button>
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "#a39a89", marginTop: 4 }}>e.g. "Paneer, 5, kg" means 5kg of paneer feeds 100 guests this dish.</div>
+                    </div>
+                  )}
                 </React.Fragment>
               ))}
             </div>
@@ -5795,9 +6666,10 @@ function CateringTemplateDetail({ template, budgets, setBudgets, companySettings
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{r.clientName || "Unnamed client"}</div>
                   <div style={{ fontSize: 11.5, color: "#8a8071" }}>{r.submittedAt ? new Date(r.submittedAt).toLocaleString("en-IN") : ""}</div>
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11.5 }} onClick={() => setAddToBudgetFor(addToBudgetFor === r.id ? null : r.id)}>💰 Add to Client Budget</button>
                   <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11.5 }} onClick={() => window.generateMenuSelectionPdf(r, template, companySettings)}>📄 Export PDF</button>
+                  <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11.5 }} onClick={() => generateProcurementSheet(r)}>🥘 Procurement & Kitchen Sheet</button>
                   <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11.5, color: "#c9585d" }} onClick={() => deleteResponse(r.id)}>🗑 Delete</button>
                 </div>
               </div>
@@ -6066,11 +6938,13 @@ function StaffView({ staffMembers, setStaffMembers, logActivity }) {
   const [newRole, setNewRole] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [earningDraft, setEarningDraft] = useState({});
+  const [attendanceOpenFor, setAttendanceOpenFor] = useState(null);
+  const [attendanceMonth, setAttendanceMonth] = useState(new Date().toISOString().slice(0, 7));
 
   const addStaff = () => {
     const name = newName.trim();
     if (!name) return;
-    const s = { id: uid(), name, role: newRole.trim(), phone: newPhone.trim(), notes: "", earnings: [] };
+    const s = { id: uid(), name, role: newRole.trim(), phone: newPhone.trim(), notes: "", earnings: [], dailyRate: 0, attendance: [] };
     setStaffMembers(prev => [s, ...prev]);
     if (logActivity) logActivity(`Added staff member "${name}"`);
     setNewName(""); setNewRole(""); setNewPhone("");
@@ -6086,6 +6960,25 @@ function StaffView({ staffMembers, setStaffMembers, logActivity }) {
   };
   const removeEarning = (staffId, earningId) => {
     setStaffMembers(prev => prev.map(s => s.id === staffId ? { ...s, earnings: (s.earnings || []).filter(e => e.id !== earningId) } : s));
+  };
+
+  const markAttendance = (staffId, dateStr, status) => {
+    setStaffMembers(prev => prev.map(s => {
+      if (s.id !== staffId) return s;
+      const attendance = s.attendance || [];
+      const existing = attendance.find(a => a.date === dateStr);
+      if (existing) return { ...s, attendance: attendance.map(a => a.date === dateStr ? { ...a, status } : a) };
+      return { ...s, attendance: [...attendance, { id: uid(), date: dateStr, status, advance: 0 }] };
+    }));
+  };
+  const setAdvance = (staffId, dateStr, advance) => {
+    setStaffMembers(prev => prev.map(s => {
+      if (s.id !== staffId) return s;
+      const attendance = s.attendance || [];
+      const existing = attendance.find(a => a.date === dateStr);
+      if (existing) return { ...s, attendance: attendance.map(a => a.date === dateStr ? { ...a, advance: Number(advance) || 0 } : a) };
+      return { ...s, attendance: [...attendance, { id: uid(), date: dateStr, status: "Present", advance: Number(advance) || 0 }] };
+    }));
   };
 
   return (
@@ -6114,6 +7007,10 @@ function StaffView({ staffMembers, setStaffMembers, logActivity }) {
                 <input className="beo-input" placeholder="Role" value={s.role || ""} onChange={e => updateStaff(s.id, { role: e.target.value })} style={{ fontSize: 12.5, padding: "5px 8px", marginBottom: 6 }} />
                 <input className="beo-input" placeholder="Phone" value={s.phone || ""} onChange={e => updateStaff(s.id, { phone: e.target.value })} style={{ fontSize: 12.5, padding: "5px 8px", marginBottom: 6 }} />
                 {s.phone && <a href={waLink(s.phone)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#2E7D32", fontWeight: 600, textDecoration: "none" }}>💬 WhatsApp</a>}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+                  <label style={{ fontSize: 11.5, color: "#8a8071" }}>Daily rate ₹</label>
+                  <input className="beo-input" type="number" value={nz(s.dailyRate)} onChange={e => updateStaff(s.id, { dailyRate: Number(e.target.value) || 0 })} style={{ width: 80, fontSize: 12, padding: "4px 6px" }} />
+                </div>
 
                 <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -6134,6 +7031,36 @@ function StaffView({ staffMembers, setStaffMembers, logActivity }) {
                     <input className="beo-input" placeholder="Note" value={draft.note} onChange={e => setEarningDraft(prev => ({ ...prev, [s.id]: { ...draft, note: e.target.value } }))} onKeyDown={e => e.key === "Enter" && addEarning(s.id)} style={{ flex: 1, fontSize: 11.5, padding: "4px 6px" }} />
                     <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => addEarning(s.id)}>＋</button>
                   </div>
+                </div>
+
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #E4DCC8" }}>
+                  <div onClick={() => setAttendanceOpenFor(attendanceOpenFor === s.id ? null : s.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: "#8a8071", textTransform: "uppercase" }}>Attendance & Wages {attendanceOpenFor === s.id ? "▲" : "▼"}</span>
+                  </div>
+                  {attendanceOpenFor === s.id && (() => {
+                    const attendance = s.attendance || [];
+                    const monthEntries = attendance.filter(a => a.date.slice(0, 7) === attendanceMonth);
+                    const presentDays = monthEntries.filter(a => a.status === "Present").length + monthEntries.filter(a => a.status === "Half Day").length * 0.5;
+                    const totalAdvance = monthEntries.reduce((sum, a) => sum + (Number(a.advance) || 0), 0);
+                    const wagesDue = (presentDays * (Number(s.dailyRate) || 0)) - totalAdvance;
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    const todayEntry = attendance.find(a => a.date === todayStr);
+                    return (
+                      <div style={{ marginTop: 8 }}>
+                        <input className="beo-input" type="month" value={attendanceMonth} onChange={e => setAttendanceMonth(e.target.value)} style={{ fontSize: 11.5, padding: "4px 6px", marginBottom: 8, width: 140 }} />
+                        <div style={{ fontSize: 11.5, marginBottom: 4 }}>Mark today ({todayStr}):</div>
+                        <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+                          {["Present", "Half Day", "Absent"].map(status => (
+                            <button key={status} className="beo-btn" onClick={() => markAttendance(s.id, todayStr, status)} style={{ fontSize: 10.5, padding: "4px 8px", background: (todayEntry && todayEntry.status === status) ? "#6B1E23" : "#F1EADA", color: (todayEntry && todayEntry.status === status) ? "#fff" : "#211D17" }}>{status}</button>
+                          ))}
+                          <input className="beo-input" type="number" placeholder="Advance ₹" value={todayEntry ? (todayEntry.advance || "") : ""} onChange={e => setAdvance(s.id, todayStr, e.target.value)} style={{ width: 80, fontSize: 10.5, padding: "4px 6px" }} />
+                        </div>
+                        <div style={{ fontSize: 11.5, padding: "3px 0" }}>Present days this month: <b>{presentDays}</b></div>
+                        <div style={{ fontSize: 11.5, padding: "3px 0" }}>Advances taken: <b>{inr(totalAdvance)}</b></div>
+                        <div style={{ fontSize: 12.5, padding: "4px 0", fontWeight: 700, color: wagesDue >= 0 ? "#2E7D32" : "#c9585d" }}>Wages due: {inr(wagesDue)}</div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );
@@ -6315,6 +7242,615 @@ function DocumentVaultView({ vaultDocuments, setVaultDocuments, logActivity }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function CorporateGiftingView({ giftingCampaigns, setGiftingCampaigns, logActivity }) {
+  const [openId, setOpenId] = useState(giftingCampaigns[0]?.id || null);
+  const [newName, setNewName] = useState("");
+  const [recipientDraft, setRecipientDraft] = useState({ name: "", address: "", gift: "" });
+
+  const addCampaign = () => {
+    if (!newName.trim()) return;
+    const c = { id: uid(), name: newName.trim(), recipients: [] };
+    setGiftingCampaigns(prev => [...prev, c]);
+    if (logActivity) logActivity(`Created gifting campaign "${c.name}"`);
+    setNewName(""); setOpenId(c.id);
+  };
+  const removeCampaign = (id) => setGiftingCampaigns(prev => prev.filter(c => c.id !== id));
+  const open = giftingCampaigns.find(c => c.id === openId);
+
+  const addRecipient = () => {
+    if (!recipientDraft.name.trim()) return;
+    const r = { id: uid(), ...recipientDraft, status: "Pending" };
+    setGiftingCampaigns(prev => prev.map(c => c.id === openId ? { ...c, recipients: [...c.recipients, r] } : c));
+    setRecipientDraft({ name: "", address: "", gift: "" });
+  };
+  const removeRecipient = (id) => setGiftingCampaigns(prev => prev.map(c => c.id === openId ? { ...c, recipients: c.recipients.filter(r => r.id !== id) } : c));
+  const setStatus = (id, status) => setGiftingCampaigns(prev => prev.map(c => c.id === openId ? { ...c, recipients: c.recipients.map(r => r.id === id ? { ...r, status } : r) } : c));
+
+  const STATUSES = ["Pending", "Dispatched", "Delivered"];
+
+  return (
+    <div className="two-col">
+      <div className="beo-card" style={{ padding: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 10 }}>Campaigns</div>
+        {giftingCampaigns.map(c => (
+          <div key={c.id} onClick={() => setOpenId(c.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: openId === c.id ? "#F1EADA" : "transparent", marginBottom: 2 }}>
+            <span style={{ fontSize: 14 }}>🎁 {c.name} <span style={{ fontSize: 11, color: "#a39a89" }}>({c.recipients.length})</span></span>
+            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeCampaign(c.id); }}>🗑</span>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+          <input className="beo-input" placeholder="e.g. Diwali 2026" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addCampaign()} style={{ fontSize: 13 }} />
+          <button className="beo-btn beo-btn-gold" onClick={addCampaign}>＋</button>
+        </div>
+      </div>
+      <div className="beo-card" style={{ padding: 20 }}>
+        {!open ? <div style={{ color: "#a39a89" }}>Create a campaign to start adding recipients.</div> : (
+          <React.Fragment>
+            <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 14 }}>{open.name}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 24px", gap: 6, marginBottom: 14 }}>
+              <input className="beo-input" placeholder="Recipient name" value={recipientDraft.name} onChange={e => setRecipientDraft(p => ({ ...p, name: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+              <input className="beo-input" placeholder="Gift item" value={recipientDraft.gift} onChange={e => setRecipientDraft(p => ({ ...p, gift: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+              <input className="beo-input" placeholder="Delivery address" value={recipientDraft.address} onChange={e => setRecipientDraft(p => ({ ...p, address: e.target.value }))} onKeyDown={e => e.key === "Enter" && addRecipient()} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+              <button className="beo-btn beo-btn-primary" style={{ padding: "6px 8px" }} onClick={addRecipient}>＋</button>
+            </div>
+            {open.recipients.length === 0 ? (
+              <div style={{ color: "#a39a89", fontSize: 13 }}>No recipients added yet.</div>
+            ) : open.recipients.map(r => (
+              <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA", fontSize: 13 }}>
+                <div>
+                  <b>{r.name}</b> — {r.gift || "no gift set"}
+                  {r.address && <div style={{ fontSize: 11.5, color: "#8a8071" }}>{r.address}</div>}
+                </div>
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <select value={r.status} onChange={e => setStatus(r.id, e.target.value)} className="beo-input" style={{ fontSize: 11, padding: "4px 6px", width: "auto" }}>
+                    {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={() => removeRecipient(r.id)}>🗑</span>
+                </div>
+              </div>
+            ))}
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GuestRoomManagerView({ budget, cities, onChange, onBack }) {
+  const [newGuestName, setNewGuestName] = useState("");
+  const [bulkText, setBulkText] = useState("");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filterHotel, setFilterHotel] = useState("All");
+  const [filterSide, setFilterSide] = useState("All");
+  const [idUploadingFor, setIdUploadingFor] = useState(null);
+
+  if (!budget) return null;
+  const guestList = budget.guestList || [];
+  const update = (patch) => onChange({ ...budget, ...patch });
+
+  const allHotels = (cities || []).flatMap(c => (c.hotels || []).map(h => ({ id: h.id, name: h.name, cityName: c.name })));
+
+  const addGuest = () => {
+    const name = newGuestName.trim();
+    if (!name) return;
+    update({ guestList: [...guestList, { id: uid(), name, familyGroup: "", side: "Both", phone: "", hotelId: "", roomNumber: "", roomType: "", checkIn: "", checkOut: "", arrivalMode: "", arrivalDetails: "", dressCodeNote: "", idDocUrl: "" }] });
+    setNewGuestName("");
+  };
+  const addBulkGuests = () => {
+    const names = bulkText.split(/\n+/).map(n => n.trim()).filter(Boolean);
+    if (names.length === 0) return;
+    const newGuests = names.map(name => ({ id: uid(), name, familyGroup: "", side: "Both", phone: "", hotelId: "", roomNumber: "", roomType: "", checkIn: "", checkOut: "", arrivalMode: "", arrivalDetails: "", dressCodeNote: "", idDocUrl: "" }));
+    update({ guestList: [...guestList, ...newGuests] });
+    setBulkText(""); setBulkOpen(false);
+  };
+  const updateGuest = (id, patch) => update({ guestList: guestList.map(g => g.id === id ? { ...g, ...patch } : g) });
+  const removeGuest = (id) => update({ guestList: guestList.filter(g => g.id !== id) });
+
+  const uploadGuestId = async (guestId, file) => {
+    setIdUploadingFor(guestId);
+    try {
+      const path = `guestIds/${budget.id}/${guestId}_${Date.now()}_${file.name}`;
+      const ref = window.__storage.ref().child(path);
+      await ref.put(file);
+      const url = await ref.getDownloadURL();
+      updateGuest(guestId, { idDocUrl: url });
+    } catch (e) { alert("Upload failed: " + e.message); }
+    setIdUploadingFor(null);
+  };
+
+  const occupancy = {};
+  guestList.forEach(g => { if (g.hotelId) occupancy[g.hotelId] = (occupancy[g.hotelId] || 0) + 1; });
+
+  let filtered = guestList;
+  if (filterHotel !== "All") filtered = filtered.filter(g => g.hotelId === filterHotel);
+  if (filterSide !== "All") filtered = filtered.filter(g => g.side === filterSide);
+  if (search.trim()) { const q = search.trim().toLowerCase(); filtered = filtered.filter(g => g.name.toLowerCase().includes(q) || (g.familyGroup || "").toLowerCase().includes(q)); }
+
+  const printRoomList = (hotelId) => {
+    const hotel = allHotels.find(h => h.id === hotelId);
+    const guests = guestList.filter(g => g.hotelId === hotelId);
+    window.generateRoomListPdf(budget.name, hotel ? hotel.name : "Unassigned", guests);
+  };
+
+  const getOrCreateGuestPortalLink = async () => {
+    const id = budget.guestPortalShareId || uid();
+    try {
+      await db.collection("publicGuestPortals").doc(id).set({
+        budgetName: budget.name || "", date: budget.date || "",
+        guests: guestList.map(g => ({ name: g.name, phone: g.phone, hotelName: (allHotels.find(h => h.id === g.hotelId) || {}).name || "", roomNumber: g.roomNumber, checkIn: g.checkIn, checkOut: g.checkOut, arrivalMode: g.arrivalMode, arrivalDetails: g.arrivalDetails, dressCodeNote: g.dressCodeNote })),
+        schedule: (budget.days || []).map(d => ({ label: d.label, date: d.date, events: (d.events || []).map(e => ({ name: e.name, time: e.time })) })),
+        updatedAt: Date.now()
+      });
+      if (!budget.guestPortalShareId) update({ guestPortalShareId: id });
+      const url = `${window.location.origin}${window.location.pathname}?guestportal=${id}`;
+      navigator.clipboard.writeText(url);
+      alert("Guest info portal link copied — share this with all your guests:\n\n" + url);
+    } catch (e) { alert("Could not create link: " + e.message); }
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <button className="beo-btn beo-btn-ghost" onClick={onBack}>← Back to {budget.name}</button>
+        <button className="beo-btn beo-btn-gold" onClick={getOrCreateGuestPortalLink}>🔗 Get Guest Info Portal Link</button>
+      </div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 4 }}>🏨 Guest & Room Manager</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", marginBottom: 16 }}>{guestList.length} guests total. One shared link lets every guest look up their own room, pickup, and schedule.</div>
+
+      {allHotels.length > 0 && (
+        <div className="beo-card" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Room Occupancy by Hotel</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+            {allHotels.filter(h => occupancy[h.id]).map(h => (
+              <div key={h.id} style={{ border: "1px solid #F1EADA", borderRadius: 6, padding: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{h.name}</div>
+                <div style={{ fontSize: 12, color: "#8a8071" }}>{occupancy[h.id]} guest{occupancy[h.id] === 1 ? "" : "s"}</div>
+                <button className="beo-btn beo-btn-ghost" style={{ fontSize: 11, marginTop: 6 }} onClick={() => printRoomList(h.id)}>🖨 Print Room List</button>
+              </div>
+            ))}
+            {guestList.some(g => !g.hotelId) && (
+              <div style={{ border: "1px solid #F1EADA", borderRadius: 6, padding: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>Unassigned</div>
+                <div style={{ fontSize: 12, color: "#c9585d" }}>{guestList.filter(g => !g.hotelId).length} guest(s) — no hotel yet</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="beo-card" style={{ padding: 14, marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input className="beo-input" placeholder="Add guest name" value={newGuestName} onChange={e => setNewGuestName(e.target.value)} onKeyDown={e => e.key === "Enter" && addGuest()} style={{ flex: "1 1 180px" }} />
+        <button className="beo-btn beo-btn-primary" onClick={addGuest}>＋ Add</button>
+        <button className="beo-btn beo-btn-ghost" onClick={() => setBulkOpen(!bulkOpen)}>📋 Paste Multiple</button>
+        <input className="beo-input" placeholder="🔍 Search name/family" value={search} onChange={e => setSearch(e.target.value)} style={{ flex: "1 1 160px" }} />
+        <select className="beo-input" value={filterHotel} onChange={e => setFilterHotel(e.target.value)} style={{ width: "auto" }}>
+          <option value="All">All Hotels</option>
+          {allHotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+        </select>
+        <select className="beo-input" value={filterSide} onChange={e => setFilterSide(e.target.value)} style={{ width: "auto" }}>
+          <option value="All">All Sides</option>
+          <option value="Bride">Bride's Side</option>
+          <option value="Groom">Groom's Side</option>
+          <option value="Both">Both / Common</option>
+        </select>
+      </div>
+      {bulkOpen && (
+        <div className="beo-card" style={{ padding: 14, marginBottom: 14 }}>
+          <textarea className="beo-input" rows={5} placeholder={"Paste guest names, one per line:\n\nRakesh Sharma\nSunita Sharma\nAnil Kumar"} value={bulkText} onChange={e => setBulkText(e.target.value)} style={{ resize: "vertical", fontFamily: "inherit", marginBottom: 8 }} />
+          <button className="beo-btn beo-btn-primary" onClick={addBulkGuests}>＋ Add all as guests</button>
+        </div>
+      )}
+
+      <div className="beo-card" style={{ padding: 0, overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: "#F1EADA" }}>
+              {["Name", "Family Group", "Side", "Phone", "Hotel", "Room #", "Room Type", "Check-in", "Check-out", "Arrival", "Arrival Details", "Dress Code", "ID", ""].map(h => (
+                <th key={h} style={{ padding: "8px 6px", textAlign: "left", whiteSpace: "nowrap", fontWeight: 700 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(g => (
+              <tr key={g.id} style={{ borderTop: "1px solid #F1EADA" }}>
+                <td style={{ padding: 4 }}><input className="beo-input" value={g.name} onChange={e => updateGuest(g.id, { name: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 120 }} /></td>
+                <td style={{ padding: 4 }}><input className="beo-input" value={g.familyGroup} onChange={e => updateGuest(g.id, { familyGroup: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 100 }} /></td>
+                <td style={{ padding: 4 }}>
+                  <select className="beo-input" value={g.side} onChange={e => updateGuest(g.id, { side: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 90 }}>
+                    <option value="Bride">Bride</option><option value="Groom">Groom</option><option value="Both">Both</option>
+                  </select>
+                </td>
+                <td style={{ padding: 4 }}><input className="beo-input" value={g.phone} onChange={e => updateGuest(g.id, { phone: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 100 }} /></td>
+                <td style={{ padding: 4 }}>
+                  <select className="beo-input" value={g.hotelId} onChange={e => updateGuest(g.id, { hotelId: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 130 }}>
+                    <option value="">— None —</option>
+                    {allHotels.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+                  </select>
+                </td>
+                <td style={{ padding: 4 }}><input className="beo-input" value={g.roomNumber} onChange={e => updateGuest(g.id, { roomNumber: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 60 }} /></td>
+                <td style={{ padding: 4 }}><input className="beo-input" value={g.roomType} onChange={e => updateGuest(g.id, { roomType: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 80 }} /></td>
+                <td style={{ padding: 4 }}><input className="beo-input" type="date" value={g.checkIn} onChange={e => updateGuest(g.id, { checkIn: e.target.value })} style={{ fontSize: 11, padding: "4px 4px", width: 120 }} /></td>
+                <td style={{ padding: 4 }}><input className="beo-input" type="date" value={g.checkOut} onChange={e => updateGuest(g.id, { checkOut: e.target.value })} style={{ fontSize: 11, padding: "4px 4px", width: 120 }} /></td>
+                <td style={{ padding: 4 }}>
+                  <select className="beo-input" value={g.arrivalMode} onChange={e => updateGuest(g.id, { arrivalMode: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 80 }}>
+                    <option value="">—</option><option>Train</option><option>Flight</option><option>Car</option><option>Self</option>
+                  </select>
+                </td>
+                <td style={{ padding: 4 }}><input className="beo-input" placeholder="e.g. 12345, 6 PM" value={g.arrivalDetails} onChange={e => updateGuest(g.id, { arrivalDetails: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 130 }} /></td>
+                <td style={{ padding: 4 }}><input className="beo-input" value={g.dressCodeNote} onChange={e => updateGuest(g.id, { dressCodeNote: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 90 }} /></td>
+                <td style={{ padding: 4, whiteSpace: "nowrap" }}>
+                  {g.idDocUrl ? (
+                    <a href={g.idDocUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2E7D32" }}>✔ View</a>
+                  ) : (
+                    <label style={{ fontSize: 11, color: "#6B1E23", cursor: "pointer" }}>
+                      {idUploadingFor === g.id ? "…" : "⬆ Upload"}
+                      <input type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={e => e.target.files[0] && uploadGuestId(g.id, e.target.files[0])} />
+                    </label>
+                  )}
+                </td>
+                <td style={{ padding: 4 }}><span onClick={() => removeGuest(g.id)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div style={{ padding: 20, textAlign: "center", color: "#a39a89" }}>No guests match.</div>}
+      </div>
+    </div>
+  );
+}
+
+function HotelRfpView({ rfps, setRfps, cities, logActivity }) {
+  const [openId, setOpenId] = useState(rfps[0]?.id || null);
+  const [newName, setNewName] = useState("");
+  const [hotelPick, setHotelPick] = useState("");
+
+  const allHotels = (cities || []).flatMap(c => (c.hotels || []).map(h => ({ id: h.id, name: h.name, cityName: c.name })));
+  const open = rfps.find(r => r.id === openId);
+  const updateRfp = (patch) => setRfps(prev => prev.map(r => r.id === openId ? { ...r, ...patch } : r));
+
+  const addRfp = () => {
+    if (!newName.trim()) return;
+    const r = { id: uid(), name: newName.trim(), eventDate: "", guests: 100, rooms: 20, nights: 2, banquetNotes: "", quotes: [] };
+    setRfps(prev => [r, ...prev]);
+    if (logActivity) logActivity(`Created hotel RFP "${r.name}"`);
+    setNewName(""); setOpenId(r.id);
+  };
+  const removeRfp = (id) => { setRfps(prev => prev.filter(r => r.id !== id)); if (openId === id) setOpenId(null); };
+
+  const addHotelQuote = () => {
+    if (!open || !hotelPick) return;
+    if (open.quotes.some(q => q.hotelId === hotelPick)) { alert("That hotel is already in this RFP."); return; }
+    const h = allHotels.find(x => x.id === hotelPick);
+    const q = { id: uid(), hotelId: hotelPick, hotelName: h ? h.name : "Hotel", cityName: h ? h.cityName : "", status: "Sent", roomRate: 0, banquetPerPax: 0, otherCost: 0, notes: "" };
+    updateRfp({ quotes: [...open.quotes, q] });
+    setHotelPick("");
+  };
+  const updateQuote = (qid, patch) => updateRfp({ quotes: open.quotes.map(q => q.id === qid ? { ...q, ...patch } : q) });
+  const removeQuote = (qid) => updateRfp({ quotes: open.quotes.filter(q => q.id !== qid) });
+
+  const totalFor = (q) => {
+    if (!open) return 0;
+    return (Number(q.roomRate) || 0) * (Number(open.rooms) || 0) * (Number(open.nights) || 0)
+      + (Number(q.banquetPerPax) || 0) * (Number(open.guests) || 0)
+      + (Number(q.otherCost) || 0);
+  };
+  const receivedTotals = open ? open.quotes.filter(q => q.status !== "Sent" && q.status !== "Rejected" && totalFor(q) > 0).map(totalFor) : [];
+  const lowest = receivedTotals.length ? Math.min(...receivedTotals) : null;
+
+  const copyRfpMessage = () => {
+    if (!open) return;
+    const msg = `Hello, we are planning an event${open.eventDate ? " on " + open.eventDate : ""} and would like a quotation.\n\nGuests: ${open.guests}\nRooms needed: ${open.rooms} for ${open.nights} night(s)\nBanquet / requirements: ${open.banquetNotes || "Please share your best banquet packages"}\n\nKindly share your room rates, banquet per-person cost, and any other charges. Thank you!`;
+    navigator.clipboard.writeText(msg);
+    alert("RFP message copied — paste it into WhatsApp or email to each hotel.");
+  };
+
+  const STATUSES = ["Sent", "Received", "Shortlisted", "Rejected"];
+
+  return (
+    <div className="two-col">
+      <div className="beo-card" style={{ padding: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 10 }}>Hotel RFPs</div>
+        {rfps.map(r => (
+          <div key={r.id} onClick={() => setOpenId(r.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: openId === r.id ? "#F1EADA" : "transparent", marginBottom: 2 }}>
+            <span style={{ fontSize: 14 }}>📨 {r.name} <span style={{ fontSize: 11, color: "#a39a89" }}>({r.quotes.length})</span></span>
+            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); removeRfp(r.id); }}>🗑</span>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+          <input className="beo-input" placeholder="e.g. Sharma Wedding 2027" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addRfp()} style={{ fontSize: 13 }} />
+          <button className="beo-btn beo-btn-gold" onClick={addRfp}>＋</button>
+        </div>
+      </div>
+
+      <div className="beo-card" style={{ padding: 20, overflowX: "auto" }}>
+        {!open ? <div style={{ color: "#a39a89" }}>Create an RFP to compare hotel quotes side by side.</div> : (
+          <React.Fragment>
+            <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 12 }}>{open.name}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 12 }}>
+              <div><label style={{ fontSize: 11.5, color: "#8a8071" }}>Event date</label><input className="beo-input" type="date" value={open.eventDate} onChange={e => updateRfp({ eventDate: e.target.value })} style={{ marginTop: 4 }} /></div>
+              <div><label style={{ fontSize: 11.5, color: "#8a8071" }}>Guests</label><input className="beo-input" type="number" value={nz(open.guests)} onChange={e => updateRfp({ guests: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} /></div>
+              <div><label style={{ fontSize: 11.5, color: "#8a8071" }}>Rooms needed</label><input className="beo-input" type="number" value={nz(open.rooms)} onChange={e => updateRfp({ rooms: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} /></div>
+              <div><label style={{ fontSize: 11.5, color: "#8a8071" }}>Nights</label><input className="beo-input" type="number" value={nz(open.nights)} onChange={e => updateRfp({ nights: Number(e.target.value) || 0 })} style={{ marginTop: 4 }} /></div>
+            </div>
+            <textarea className="beo-input" rows={2} placeholder="Banquet / other requirements (lawn, ballroom, décor rules, liquor, etc.)" value={open.banquetNotes} onChange={e => updateRfp({ banquetNotes: e.target.value })} style={{ resize: "vertical", fontFamily: "inherit", marginBottom: 10 }} />
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+              <button className="beo-btn beo-btn-ghost" onClick={copyRfpMessage}>📋 Copy RFP message to send</button>
+              <select className="beo-input" value={hotelPick} onChange={e => setHotelPick(e.target.value)} style={{ width: "auto", minWidth: 200 }}>
+                <option value="">— Add a hotel to compare —</option>
+                {allHotels.map(h => <option key={h.id} value={h.id}>{h.name} ({h.cityName})</option>)}
+              </select>
+              <button className="beo-btn beo-btn-primary" onClick={addHotelQuote}>＋ Add hotel</button>
+            </div>
+
+            {open.quotes.length === 0 ? <div style={{ color: "#a39a89", fontSize: 13 }}>No hotels added yet. Add hotels above, send them the RFP, then log each quote here.</div> : (
+              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ background: "#F1EADA" }}>
+                    {["Hotel", "Status", "Room rate / night", "Banquet / pax", "Other cost", "Estimated Total", "Notes", ""].map(h => <th key={h} style={{ padding: "8px 6px", textAlign: "left", whiteSpace: "nowrap" }}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {open.quotes.map(q => {
+                    const total = totalFor(q);
+                    const isLowest = lowest !== null && total === lowest && total > 0 && q.status !== "Sent" && q.status !== "Rejected";
+                    return (
+                      <tr key={q.id} style={{ borderTop: "1px solid #F1EADA", background: isLowest ? "#EAF3EC" : "transparent" }}>
+                        <td style={{ padding: 6, fontWeight: 600 }}>{q.hotelName}<div style={{ fontSize: 11, color: "#8a8071", fontWeight: 400 }}>{q.cityName}</div></td>
+                        <td style={{ padding: 4 }}>
+                          <select className="beo-input" value={q.status} onChange={e => updateQuote(q.id, { status: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 100 }}>
+                            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </td>
+                        <td style={{ padding: 4 }}><input className="beo-input" type="number" value={nz(q.roomRate)} onChange={e => updateQuote(q.id, { roomRate: Number(e.target.value) || 0 })} style={{ fontSize: 12, padding: "4px 6px", width: 90 }} /></td>
+                        <td style={{ padding: 4 }}><input className="beo-input" type="number" value={nz(q.banquetPerPax)} onChange={e => updateQuote(q.id, { banquetPerPax: Number(e.target.value) || 0 })} style={{ fontSize: 12, padding: "4px 6px", width: 90 }} /></td>
+                        <td style={{ padding: 4 }}><input className="beo-input" type="number" value={nz(q.otherCost)} onChange={e => updateQuote(q.id, { otherCost: Number(e.target.value) || 0 })} style={{ fontSize: 12, padding: "4px 6px", width: 90 }} /></td>
+                        <td style={{ padding: 6, fontWeight: 700, color: isLowest ? "#2E7D32" : "#211D17", whiteSpace: "nowrap" }}>{total > 0 ? inr(total) : "—"}{isLowest ? " ✔ lowest" : ""}</td>
+                        <td style={{ padding: 4 }}><input className="beo-input" value={q.notes} onChange={e => updateQuote(q.id, { notes: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 150 }} placeholder="Inclusions, terms…" /></td>
+                        <td style={{ padding: 4 }}><span onClick={() => removeQuote(q.id)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            <div style={{ fontSize: 11, color: "#a39a89", marginTop: 10 }}>Estimated total = room rate × rooms × nights + banquet per pax × guests + other cost. The lowest quote already received is highlighted green.</div>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SponsorExhibitorView({ sponsorEvents, setSponsorEvents, logActivity }) {
+  const [openId, setOpenId] = useState(sponsorEvents[0]?.id || null);
+  const [newName, setNewName] = useState("");
+  const [draft, setDraft] = useState({ company: "", contact: "", phone: "", type: "Exhibitor" });
+
+  const open = sponsorEvents.find(e => e.id === openId);
+  const updateEvent = (patch) => setSponsorEvents(prev => prev.map(e => e.id === openId ? { ...e, ...patch } : e));
+
+  const addEvent = () => {
+    if (!newName.trim()) return;
+    const e = { id: uid(), name: newName.trim(), participants: [] };
+    setSponsorEvents(prev => [e, ...prev]);
+    if (logActivity) logActivity(`Created sponsor/exhibitor event "${e.name}"`);
+    setNewName(""); setOpenId(e.id);
+  };
+  const removeEvent = (id) => { setSponsorEvents(prev => prev.filter(e => e.id !== id)); if (openId === id) setOpenId(null); };
+
+  const addParticipant = () => {
+    if (!open || !draft.company.trim()) return;
+    const p = { id: uid(), ...draft, package: "", stallNo: "", amountAgreed: 0, amountPaid: 0, status: "Prospect", deliverables: "" };
+    updateEvent({ participants: [...open.participants, p] });
+    setDraft({ company: "", contact: "", phone: "", type: "Exhibitor" });
+  };
+  const updateParticipant = (pid, patch) => updateEvent({ participants: open.participants.map(p => p.id === pid ? { ...p, ...patch } : p) });
+  const removeParticipant = (pid) => updateEvent({ participants: open.participants.filter(p => p.id !== pid) });
+
+  const parts = open ? open.participants : [];
+  const totalAgreed = parts.reduce((s, p) => s + (Number(p.amountAgreed) || 0), 0);
+  const totalPaid = parts.reduce((s, p) => s + (Number(p.amountPaid) || 0), 0);
+  const confirmedCount = parts.filter(p => p.status === "Confirmed" || p.status === "Paid").length;
+
+  const STATUSES = ["Prospect", "Confirmed", "Paid", "Declined"];
+
+  return (
+    <div className="two-col">
+      <div className="beo-card" style={{ padding: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#8a8071", textTransform: "uppercase", marginBottom: 10 }}>Events</div>
+        {sponsorEvents.map(e => (
+          <div key={e.id} onClick={() => setOpenId(e.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: 6, cursor: "pointer", background: openId === e.id ? "#F1EADA" : "transparent", marginBottom: 2 }}>
+            <span style={{ fontSize: 14 }}>🤝 {e.name} <span style={{ fontSize: 11, color: "#a39a89" }}>({e.participants.length})</span></span>
+            <span style={{ color: "#c98b8e", cursor: "pointer" }} onClick={(ev) => { ev.stopPropagation(); removeEvent(e.id); }}>🗑</span>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+          <input className="beo-input" placeholder="e.g. Saree Exhibition Sept 2026" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addEvent()} style={{ fontSize: 13 }} />
+          <button className="beo-btn beo-btn-gold" onClick={addEvent}>＋</button>
+        </div>
+      </div>
+
+      <div className="beo-card" style={{ padding: 20, overflowX: "auto" }}>
+        {!open ? <div style={{ color: "#a39a89" }}>Create an event to track sponsors and exhibitors.</div> : (
+          <React.Fragment>
+            <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 12 }}>{open.name}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
+              <StatCard label="Confirmed" value={`${confirmedCount} / ${parts.length}`} sub="sponsors + exhibitors" color="#6B1E23" />
+              <StatCard label="Agreed Amount" value={inr(totalAgreed)} sub="total committed" color="#2A6A9E" />
+              <StatCard label="Received" value={inr(totalPaid)} sub={`${inr(Math.max(0, totalAgreed - totalPaid))} pending`} color="#2E7D32" />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr 100px 24px", gap: 6, marginBottom: 14 }}>
+              <input className="beo-input" placeholder="Company name" value={draft.company} onChange={e => setDraft(p => ({ ...p, company: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+              <input className="beo-input" placeholder="Contact person" value={draft.contact} onChange={e => setDraft(p => ({ ...p, contact: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+              <input className="beo-input" placeholder="Phone" value={draft.phone} onChange={e => setDraft(p => ({ ...p, phone: e.target.value }))} onKeyDown={e => e.key === "Enter" && addParticipant()} style={{ fontSize: 12.5, padding: "6px 8px" }} />
+              <select className="beo-input" value={draft.type} onChange={e => setDraft(p => ({ ...p, type: e.target.value }))} style={{ fontSize: 12.5, padding: "6px 6px" }}>
+                <option>Exhibitor</option><option>Sponsor</option>
+              </select>
+              <button className="beo-btn beo-btn-primary" style={{ padding: "6px 8px" }} onClick={addParticipant}>＋</button>
+            </div>
+
+            {parts.length === 0 ? <div style={{ color: "#a39a89", fontSize: 13 }}>No participants yet.</div> : (
+              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ background: "#F1EADA" }}>
+                    {["Company", "Type", "Package / Stall", "Agreed ₹", "Paid ₹", "Status", "Deliverables", ""].map(h => <th key={h} style={{ padding: "8px 6px", textAlign: "left", whiteSpace: "nowrap" }}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {parts.map(p => (
+                    <tr key={p.id} style={{ borderTop: "1px solid #F1EADA" }}>
+                      <td style={{ padding: 6 }}>
+                        <div style={{ fontWeight: 600 }}>{p.company}</div>
+                        <div style={{ fontSize: 11, color: "#8a8071" }}>{p.contact}{p.phone ? " · " + p.phone : ""}</div>
+                        {p.phone && <a href={waLink(p.phone)} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2E7D32", textDecoration: "none" }}>💬 WhatsApp</a>}
+                      </td>
+                      <td style={{ padding: 4, fontSize: 12 }}>{p.type}</td>
+                      <td style={{ padding: 4 }}>
+                        <input className="beo-input" placeholder="Package" value={p.package} onChange={e => updateParticipant(p.id, { package: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 100, marginBottom: 3 }} />
+                        <input className="beo-input" placeholder="Stall #" value={p.stallNo} onChange={e => updateParticipant(p.id, { stallNo: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 100 }} />
+                      </td>
+                      <td style={{ padding: 4 }}><input className="beo-input" type="number" value={nz(p.amountAgreed)} onChange={e => updateParticipant(p.id, { amountAgreed: Number(e.target.value) || 0 })} style={{ fontSize: 12, padding: "4px 6px", width: 90 }} /></td>
+                      <td style={{ padding: 4 }}><input className="beo-input" type="number" value={nz(p.amountPaid)} onChange={e => updateParticipant(p.id, { amountPaid: Number(e.target.value) || 0 })} style={{ fontSize: 12, padding: "4px 6px", width: 90 }} /></td>
+                      <td style={{ padding: 4 }}>
+                        <select className="beo-input" value={p.status} onChange={e => updateParticipant(p.id, { status: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 100 }}>
+                          {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding: 4 }}><input className="beo-input" value={p.deliverables} onChange={e => updateParticipant(p.id, { deliverables: e.target.value })} style={{ fontSize: 12, padding: "4px 6px", width: 160 }} placeholder="Banner, logo on stage, stall…" /></td>
+                      <td style={{ padding: 4 }}><span onClick={() => removeParticipant(p.id)} style={{ color: "#c98b8e", cursor: "pointer" }}>🗑</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DecorStockView({ decorAssets, setDecorAssets, budgets, logActivity }) {
+  const [newAsset, setNewAsset] = useState({ name: "", category: "", totalQty: "" });
+  const [moveFor, setMoveFor] = useState(null);
+  const [moveDraft, setMoveDraft] = useState({ type: "Dispatch", qty: "", event: "", damaged: "", note: "" });
+
+  const addAsset = () => {
+    const name = newAsset.name.trim();
+    const qty = Number(newAsset.totalQty) || 0;
+    if (!name || qty <= 0) return;
+    const a = { id: uid(), name, category: newAsset.category.trim(), totalQty: qty, movements: [] };
+    setDecorAssets(prev => [a, ...prev]);
+    if (logActivity) logActivity(`Added decor stock item "${name}" (${qty})`);
+    setNewAsset({ name: "", category: "", totalQty: "" });
+  };
+  const removeAsset = (id) => setDecorAssets(prev => prev.filter(a => a.id !== id));
+  const updateAsset = (id, patch) => setDecorAssets(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
+
+  const statsFor = (a) => {
+    const dispatched = a.movements.filter(m => m.type === "Dispatch").reduce((s, m) => s + m.qty, 0);
+    const returned = a.movements.filter(m => m.type === "Return").reduce((s, m) => s + m.qty, 0);
+    const damaged = a.movements.filter(m => m.type === "Return").reduce((s, m) => s + (m.damaged || 0), 0);
+    const out = Math.max(0, dispatched - returned);
+    const available = a.totalQty - out - damaged;
+    return { out, damaged, available };
+  };
+
+  const recordMovement = (assetId) => {
+    const qty = Number(moveDraft.qty) || 0;
+    if (qty <= 0) return;
+    const asset = decorAssets.find(a => a.id === assetId);
+    const st = statsFor(asset);
+    if (moveDraft.type === "Dispatch" && qty > st.available) { alert(`Only ${st.available} available in stock.`); return; }
+    if (moveDraft.type === "Return" && qty > st.out) { alert(`Only ${st.out} are currently out at events.`); return; }
+    if (!moveDraft.event.trim()) { alert("Enter which event this is for."); return; }
+    const m = { id: uid(), type: moveDraft.type, qty, event: moveDraft.event.trim(), damaged: moveDraft.type === "Return" ? (Number(moveDraft.damaged) || 0) : 0, note: moveDraft.note.trim(), date: new Date().toISOString().slice(0, 10) };
+    updateAsset(assetId, { movements: [m, ...asset.movements] });
+    setMoveDraft({ type: "Dispatch", qty: "", event: moveDraft.event, damaged: "", note: "" });
+    setMoveFor(null);
+  };
+
+  const pending = [];
+  decorAssets.forEach(a => {
+    const byEvent = {};
+    a.movements.forEach(m => { byEvent[m.event] = (byEvent[m.event] || 0) + (m.type === "Dispatch" ? m.qty : -m.qty); });
+    Object.entries(byEvent).forEach(([ev, net]) => { if (net > 0) pending.push({ asset: a.name, event: ev, qty: net }); });
+  });
+
+  return (
+    <div>
+      <div className="beo-serif" style={{ fontSize: 22, fontWeight: 700, color: "#6B1E23", marginBottom: 6 }}>📦 Decor Stock — Dispatch & Return</div>
+      <div style={{ fontSize: 12.5, color: "#8a8071", marginBottom: 16 }}>Know what's in the godown, what's out at which event, and what came back damaged or missing.</div>
+
+      <datalist id="decor-events">{(budgets || []).map(b => <option key={b.id} value={b.name} />)}</datalist>
+
+      {pending.length > 0 && (
+        <div className="beo-card" style={{ padding: 16, marginBottom: 16, borderLeft: "4px solid #B8934A" }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Pending Returns</div>
+          {pending.map((p, i) => (
+            <div key={i} style={{ fontSize: 13, padding: "3px 0" }}>{p.qty} × <b>{p.asset}</b> — still out at <b>{p.event}</b></div>
+          ))}
+        </div>
+      )}
+
+      <div className="beo-card" style={{ padding: 14, marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input className="beo-input" placeholder="Item (e.g. Brass Kalash)" value={newAsset.name} onChange={e => setNewAsset(p => ({ ...p, name: e.target.value }))} style={{ flex: "2 1 180px" }} />
+        <input className="beo-input" placeholder="Category (e.g. Props)" value={newAsset.category} onChange={e => setNewAsset(p => ({ ...p, category: e.target.value }))} style={{ flex: "1 1 120px" }} />
+        <input className="beo-input" type="number" placeholder="Total qty" value={newAsset.totalQty} onChange={e => setNewAsset(p => ({ ...p, totalQty: e.target.value }))} onKeyDown={e => e.key === "Enter" && addAsset()} style={{ flex: "1 1 90px" }} />
+        <button className="beo-btn beo-btn-primary" onClick={addAsset}>＋ Add item</button>
+      </div>
+
+      {decorAssets.length === 0 ? (
+        <div className="beo-card" style={{ padding: 30, textAlign: "center", color: "#a39a89" }}>No stock items yet.</div>
+      ) : decorAssets.map(a => {
+        const st = statsFor(a);
+        return (
+          <div key={a.id} className="beo-card" style={{ padding: 16, marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{a.name} {a.category && <span style={{ fontSize: 11, color: "#8a8071", fontWeight: 400 }}>· {a.category}</span>}</div>
+                <div style={{ fontSize: 12.5, marginTop: 3 }}>
+                  Total <b>{a.totalQty}</b> · Available <b style={{ color: st.available > 0 ? "#2E7D32" : "#c9585d" }}>{st.available}</b> · Out at events <b style={{ color: st.out > 0 ? "#B8712A" : "#211D17" }}>{st.out}</b> · Damaged/lost <b style={{ color: st.damaged > 0 ? "#c9585d" : "#211D17" }}>{st.damaged}</b>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={() => { setMoveFor(moveFor === a.id ? null : a.id); setMoveDraft(d => ({ ...d, type: "Dispatch" })); }}>Dispatch / Return</button>
+                <span onClick={() => removeAsset(a.id)} style={{ color: "#c98b8e", cursor: "pointer", alignSelf: "center" }}>🗑</span>
+              </div>
+            </div>
+
+            {moveFor === a.id && (
+              <div style={{ background: "#FAF6EE", borderRadius: 6, padding: 12, marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <select className="beo-input" value={moveDraft.type} onChange={e => setMoveDraft(d => ({ ...d, type: e.target.value }))} style={{ width: "auto" }}>
+                  <option>Dispatch</option><option>Return</option>
+                </select>
+                <input className="beo-input" type="number" placeholder="Qty" value={moveDraft.qty} onChange={e => setMoveDraft(d => ({ ...d, qty: e.target.value }))} style={{ width: 80 }} />
+                <input className="beo-input" list="decor-events" placeholder="Event / client" value={moveDraft.event} onChange={e => setMoveDraft(d => ({ ...d, event: e.target.value }))} style={{ flex: "1 1 160px" }} />
+                {moveDraft.type === "Return" && <input className="beo-input" type="number" placeholder="Damaged/missing" value={moveDraft.damaged} onChange={e => setMoveDraft(d => ({ ...d, damaged: e.target.value }))} style={{ width: 130 }} />}
+                <input className="beo-input" placeholder="Note (optional)" value={moveDraft.note} onChange={e => setMoveDraft(d => ({ ...d, note: e.target.value }))} style={{ flex: "1 1 140px" }} />
+                <button className="beo-btn beo-btn-primary" onClick={() => recordMovement(a.id)}>Save</button>
+              </div>
+            )}
+
+            {a.movements.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                {a.movements.slice(0, 5).map(m => (
+                  <div key={m.id} style={{ fontSize: 12, padding: "3px 0", color: "#5a5348" }}>
+                    <b style={{ color: m.type === "Dispatch" ? "#B8712A" : "#2E7D32" }}>{m.type}</b> · {m.qty} → {m.event} · {m.date}{m.damaged ? ` · ${m.damaged} damaged/missing` : ""}{m.note ? ` · ${m.note}` : ""}
+                  </div>
+                ))}
+                {a.movements.length > 5 && <div style={{ fontSize: 11, color: "#a39a89" }}>+ {a.movements.length - 5} earlier movements</div>}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
