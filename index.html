@@ -2661,6 +2661,8 @@ function InventoryView({ categories, setCategories, bundles, setBundles }) {
   const [bundleName, setBundleName] = useState("");
   const [editingPhotoFor, setEditingPhotoFor] = useState(null);
   const [photoUrlDraft, setPhotoUrlDraft] = useState("");
+  const [editingVideoFor, setEditingVideoFor] = useState(null);
+  const [videoUrlDraft, setVideoUrlDraft] = useState("");
 
   useEffect(() => { if ((!openCat || !categories.find(c => c.id === openCat)) && categories[0]) setOpenCat(categories[0].id); }, [categories]);
 
@@ -2721,9 +2723,20 @@ function InventoryView({ categories, setCategories, bundles, setBundles }) {
               {cat.items.length === 0 && <div style={{ color: "#a39a89", fontSize: 14, marginBottom: 10 }}>No items yet.</div>}
               {cat.items.map(item => (
                 <div key={item.id}>
-                  <div style={{ display: "grid", gridTemplateColumns: "36px 24px 1fr 120px 30px", gap: 8, alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA" }}>
-                    <div onClick={() => setEditingPhotoFor(editingPhotoFor === item.id ? null : item.id)} style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", background: "#F1EADA", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} title="Click to add/change photo">
+                  <div style={{ display: "grid", gridTemplateColumns: "36px 28px 24px 1fr 120px 30px", gap: 8, alignItems: "center", padding: "8px 4px", borderTop: "1px solid #F1EADA" }}>
+                    <div onClick={() => { setEditingPhotoFor(editingPhotoFor === item.id ? null : item.id); setEditingVideoFor(null); }} style={{ width: 32, height: 32, borderRadius: 6, overflow: "hidden", background: "#F1EADA", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} title="Click to add/change photo">
                       {item.photoUrl ? <img src={item.photoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.opacity = 0.2} /> : <span style={{ fontSize: 14, color: "#a39a89" }}>📷</span>}
+                    </div>
+                    <div
+                      onClick={() => {
+                        if (item.videoUrl && editingVideoFor !== item.id) { window.open(item.videoUrl, "_blank"); return; }
+                        setEditingVideoFor(editingVideoFor === item.id ? null : item.id);
+                        setEditingPhotoFor(null);
+                      }}
+                      style={{ width: 24, height: 32, borderRadius: 6, background: item.videoUrl ? "#F3EBD8" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 14 }}
+                      title={item.videoUrl ? "Click to watch video — long-press icon to edit link" : "Click to add a video link"}
+                    >
+                      {item.videoUrl ? "🎬" : <span style={{ color: "#c7bda7" }}>🎬</span>}
                     </div>
                     <input type="checkbox" checked={!!selectedForBundle.find(x => x.itemRef === item.id)} onChange={() => toggleBundleItem(cat.name, item)} title="Select for bundle" />
                     <input className="beo-input" value={item.name} onChange={e => updateItem(cat.id, item.id, { name: e.target.value })} />
@@ -2734,6 +2747,13 @@ function InventoryView({ categories, setCategories, bundles, setBundles }) {
                     <div style={{ display: "flex", gap: 6, padding: "4px 4px 10px 44px" }}>
                       <input className="beo-input" placeholder="Paste photo link (Drive, Imgur, or direct image URL)" value={photoUrlDraft} onChange={e => setPhotoUrlDraft(e.target.value)} style={{ fontSize: 12.5 }} />
                       <button className="beo-btn beo-btn-primary" style={{ fontSize: 12 }} onClick={() => { updateItem(cat.id, item.id, { photoUrl: toDirectImageUrl(photoUrlDraft) }); setPhotoUrlDraft(""); setEditingPhotoFor(null); }}>Save</button>
+                    </div>
+                  )}
+                  {editingVideoFor === item.id && (
+                    <div style={{ display: "flex", gap: 6, padding: "4px 4px 10px 44px", alignItems: "center" }}>
+                      <input className="beo-input" placeholder="Paste Google Drive video link" value={videoUrlDraft} onChange={e => setVideoUrlDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && e.target.value.trim() && (() => { updateItem(cat.id, item.id, { videoUrl: videoUrlDraft.trim() }); setVideoUrlDraft(""); setEditingVideoFor(null); })()} style={{ fontSize: 12.5 }} />
+                      <button className="beo-btn beo-btn-primary" style={{ fontSize: 12 }} onClick={() => { updateItem(cat.id, item.id, { videoUrl: videoUrlDraft.trim() }); setVideoUrlDraft(""); setEditingVideoFor(null); }}>Save</button>
+                      {item.videoUrl && <button className="beo-btn beo-btn-ghost" style={{ fontSize: 12 }} onClick={() => { updateItem(cat.id, item.id, { videoUrl: "" }); setVideoUrlDraft(""); setEditingVideoFor(null); }}>Remove</button>}
                     </div>
                   )}
                 </div>
